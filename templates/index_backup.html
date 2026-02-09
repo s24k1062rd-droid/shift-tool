@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>シフト作成ツール</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background-color: #f5f5f5;
+            padding-bottom: 60px;
+        }
+
+        .header {
+            background-color: #2196F3;
+            color: white;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 20px;
+        }
+
+        .tabs {
+            display: flex;
+            background-color: white;
+            overflow-x: auto;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .tab {
+            flex: 1;
+            padding: 15px;
+            text-align: center;
+            border: none;
+            background: white;
+            cursor: pointer;
+            white-space: nowrap;
+            font-size: 14px;
+            border-bottom: 3px solid transparent;
+        }
+
+        .tab.active {
+            border-bottom: 3px solid #2196F3;
+            color: #2196F3;
+            font-weight: bold;
+        }
+
+        .content {
+            display: none;
+            padding: 15px;
+        }
+
+        .content.active {
+            display: block;
+        }
+
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .card h2 {
+            font-size: 18px;
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .btn-primary {
+            background-color: #2196F3;
+            color: white;
+        }
+
+        .btn-danger {
+            background-color: #f44336;
+            color: white;
+        }
+
+        .btn-success {
+            background-color: #4CAF50;
+            color: white;
+        }
+
+        .staff-list {
+            list-style: none;
+        }
+
+        .staff-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .staff-item:last-child {
+            border-bottom: none;
+        }
+
+        .month-nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .month-nav button {
+            padding: 8px 15px;
+            border: 1px solid #2196F3;
+            background: white;
+            color: #2196F3;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .month-nav h3 {
+            font-size: 18px;
+        }
+
+        .shift-table {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 600px;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+            font-size: 12px;
+        }
+
+        th {
+            background-color: #2196F3;
+            color: white;
+            position: sticky;
+            top: 0;
+        }
+
+        td.staff-name {
+            font-weight: 500;
+            background-color: #f9f9f9;
+            text-align: left;
+            position: sticky;
+            left: 0;
+        }
+
+        td.clickable {
+            cursor: pointer;
+            min-width: 60px;
+        }
+
+        td.clickable:hover {
+            background-color: #e3f2fd;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+
+        .modal.active {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            width: 90%;
+            max-width: 400px;
+        }
+
+        .modal-content h3 {
+            margin-bottom: 15px;
+        }
+
+        .checkbox-group {
+            margin: 15px 0;
+        }
+
+        .checkbox-group label {
+            display: block;
+            padding: 10px;
+            margin-bottom: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            margin-right: 10px;
+        }
+
+        .checkbox-group label:has(input:checked) {
+            background-color: #e3f2fd;
+            border-color: #2196F3;
+        }
+        
+        .change-option {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #fff3cd;
+            border-radius: 4px;
+            border: 1px solid #ffc107;
+        }
+        
+        .change-option h4 {
+            font-size: 14px;
+            margin-bottom: 10px;
+            color: #856404;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .modal-buttons button {
+            flex: 1;
+        }
+
+        .shift-result {
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+
+        .date-group {
+            margin-bottom: 20px;
+        }
+
+        .date-group h3 {
+            background-color: #2196F3;
+            color: white;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        .shift-item {
+            padding: 8px;
+            border-left: 3px solid #4CAF50;
+            background-color: #f9f9f9;
+            margin-bottom: 5px;
+            padding-left: 10px;
+        }
+
+        .requirement-item {
+            padding: 8px;
+            margin-bottom: 5px;
+            background-color: #fff3cd;
+            border-left: 3px solid #ffc107;
+            padding-left: 10px;
+        }
+
+        .requirement-item.satisfied {
+            background-color: #d4edda;
+            border-left-color: #28a745;
+        }
+
+        .requirement-item.unsatisfied {
+            background-color: #f8d7da;
+            border-left-color: #dc3545;
+        }
+
+        @media (max-width: 600px) {
+            .tabs {
+                font-size: 12px;
+            }
+            
+            .tab {
+                padding: 12px 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📅 シフト作成ツール</h1>
+    </div>
+
+    <div class="tabs">
+        <button class="tab active" onclick="showTab('staff', event)">スタッフ</button>
+        <button class="tab" onclick="showTab('shifts', event)">シフト希望</button>
+        <button class="tab" onclick="showTab('generate', event)">シフト表</button>
+    </div>
+
+    <!-- スタッフ管理タブ -->
+    <div id="staff" class="content active">
+        <div class="card">
+            <h2>スタッフ追加</h2>
+            <div class="form-group">
+                <label>スタッフ名</label>
+                <input type="text" id="staffName" placeholder="名前を入力">
+            </div>
+            <div class="form-group">
+                <label>種別</label>
+                <select id="staffType" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px;">
+                    <option value="アルバイト">アルバイト</option>
+                    <option value="社員">社員</option>
+                </select>
+            </div>
+            <button type="button" class="btn btn-primary" id="addStaffBtn" onclick="console.log('Button clicked!'); addStaff();">追加</button>
+        </div>
+
+        <div class="card">
+            <h2>登録済みスタッフ</h2>
+            <ul class="staff-list" id="staffList"></ul>
+        </div>
+    </div>
+
+    <!-- シフト希望入力タブ -->
+    <div id="shifts" class="content">
+        <div class="card">
+            <div class="month-nav">
+                <button onclick="changeMonth(-1, 'shifts')">◀ 前月</button>
+                <h3 id="shiftMonth"></h3>
+                <button onclick="changeMonth(1, 'shifts')">次月 ▶</button>
+            </div>
+            <div class="shift-table">
+                <table id="shiftTable"></table>
+            </div>
+        </div>
+    </div>
+
+    <!-- シフト表生成タブ -->
+    <div id="generate" class="content">
+        <div class="card">
+            <h2>シフト生成</h2>
+            <p style="font-size: 12px; color: #666; margin-bottom: 10px;">
+                ※シフトは自動的に最適化されます。必要人数を超えている場合、適正人数まで調整されます。
+            </p>
+            <button class="btn btn-success" onclick="generateShift()">シフトを生成</button>
+            <button class="btn btn-primary" onclick="exportCSV()" style="margin-top: 10px;">CSV出力</button>
+        </div>
+        <div class="card">
+            <h2>生成されたシフト</h2>
+            <div class="shift-result" id="shiftResult"></div>
+        </div>
+    </div>
+
+    <!-- モーダル（シフト希望入力） -->
+    <div id="shiftModal" class="modal">
+        <div class="modal-content">
+            <h3>シフト希望入力</h3>
+            <p id="modalInfo"></p>
+            <div class="checkbox-group" id="timeSlotCheckboxes"></div>
+            <div class="modal-buttons">
+                <button class="btn btn-primary" onclick="saveShift()">保存</button>
+                <button class="btn" onclick="closeModal()">キャンセル</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentYear = new Date().getFullYear();
+        let currentMonth = new Date().getMonth() + 1;
+        let currentStaff = [];
+        let timeSlots = [];
+        let changeMap = {};  // 時間帯変更マップ
+        let modalData = {};
+
+        // タブ切り替え
+        function showTab(tabName, event) {
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.content').forEach(content => content.classList.remove('active'));
+            
+            if (event && event.target) {
+                event.target.classList.add('active');
+            }
+            document.getElementById(tabName).classList.add('active');
+
+            if (tabName === 'staff') {
+                loadStaff();
+            } else if (tabName === 'shifts') {
+                loadShiftTable();
+            }
+        }
+
+        // スタッフ管理
+        async function loadStaff() {
+            try {
+                const response = await fetch('/api/staff');
+                const staffData = await response.json();
+                currentStaff = staffData;
+                
+                const list = document.getElementById('staffList');
+                list.innerHTML = '';
+                
+                if (Object.keys(currentStaff).length === 0) {
+                    list.innerHTML = '<li class="staff-item">スタッフが登録されていません</li>';
+                    return;
+                }
+            
+                Object.entries(currentStaff).sort().forEach(([name, info]) => {
+                    const li = document.createElement('li');
+                    li.className = 'staff-item';
+                    const badge = info.type === '社員' ? '👔' : '👤';
+                    li.innerHTML = `
+                        <span>${badge} ${name} (${info.type})</span>
+                        <button class="btn btn-danger" style="width: auto; padding: 8px 15px;" onclick="deleteStaff('${name}')">削除</button>
+                    `;
+                    list.appendChild(li);
+                });
+            } catch (error) {
+                console.error('Error in loadStaff:', error);
+                alert('スタッフの読み込みに失敗しました: ' + error.message);
+            }
+        }
+
+        async function addStaff() {
+            try {
+                console.log('addStaff function called');
+                const name = document.getElementById('staffName').value.trim();
+                const type = document.getElementById('staffType').value;
+                console.log('Name:', name, 'Type:', type);
+                
+                if (!name) {
+                    alert('スタッフ名を入力してください');
+                    return;
+                }
+
+                const response = await fetch('/api/staff', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name, type})
+                });
+
+                const result = await response.json();
+                console.log('Response:', result);
+                
+                if (response.ok) {
+                    document.getElementById('staffName').value = '';
+                    loadStaff();
+                } else {
+                    alert(result.error);
+                }
+            } catch (error) {
+                console.error('Error in addStaff:', error);
+                alert('エラーが発生しました: ' + error.message);
+            }
+        }
+
+        async function deleteStaff(name) {
+            try {
+                if (!confirm(`${name}を削除しますか？`)) return;
+
+                const response = await fetch(`/api/staff/${encodeURIComponent(name)}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    loadStaff();
+                } else {
+                    const result = await response.json();
+                    alert('削除に失敗しました: ' + (result.error || '不明なエラー'));
+                }
+            } catch (error) {
+                console.error('Error in deleteStaff:', error);
+                alert('スタッフの削除に失敗しました: ' + error.message);
+            }
+        }
+
+        // シフト希望入力
+        async function loadShiftTable() {
+            const response = await fetch(`/api/shifts/${currentYear}/${currentMonth}`);
+            const data = await response.json();
+            
+            currentStaff = data.staff;
+            timeSlots = data.time_slots;
+            
+            document.getElementById('shiftMonth').textContent = `${currentYear}年${currentMonth}月`;
+            
+            const table = document.getElementById('shiftTable');
+            table.innerHTML = '';
+            
+            if (Object.keys(currentStaff).length === 0) {
+                table.innerHTML = '<tr><td colspan="100%">スタッフを登録してください</td></tr>';
+                return;
+            }
+            
+            // ヘッダー行
+            let headerRow = '<tr><th>スタッフ</th>';
+            const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+            for (let day = 1; day <= data.days_in_month; day++) {
+                const dayOfWeek = new Date(currentYear, currentMonth - 1, day).getDay();
+                const weekday = weekdays[dayOfWeek];
+                headerRow += `<th>${day}日<br>(${weekday})</th>`;
+            }
+            headerRow += '</tr>';
+            table.innerHTML = headerRow;
+            
+            // データ行
+            Object.entries(currentStaff).sort().forEach(([staffName, staffInfo]) => {
+                const badge = staffInfo.type === '社員' ? '👔' : '👤';
+                let row = `<tr><td class="staff-name">${badge} ${staffName}</td>`;
+                for (let day = 1; day <= data.days_in_month; day++) {
+                    const date = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    const slots = data.shifts[date]?.[staffName] || [];
+                    const display = slots.join(', ');
+                    
+                    row += `<td class="clickable" onclick="openShiftModal('${date}', '${staffName}')">${display}</td>`;
+                }
+                row += '</tr>';
+                table.innerHTML += row;
+            });
+        }
+
+        function openShiftModal(date, staff) {
+            modalData = {date, staff};
+            
+            document.getElementById('modalInfo').textContent = `${date} - ${staff}`;
+            
+            // チェックボックスを生成
+            const container = document.getElementById('timeSlotCheckboxes');
+            container.innerHTML = '';
+            
+            // 現在の選択を取得
+            fetch(`/api/shifts/${currentYear}/${currentMonth}`)
+                .then(res => res.json())
+                .then(data => {
+                    const currentSlots = data.shifts[date]?.[staff] || [];
+                    changeMap = data.change_map || {};
+                    
+                    // スタッフタイプを取得
+                    const staffType = currentStaff[staff]?.type || 'アルバイト';
+                    
+                    if (staffType === '社員') {
+                        // 社員の場合は「出勤」のみ表示
+                        const label = document.createElement('label');
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.value = 'work';
+                        checkbox.checked = currentSlots.length > 0;
+                        checkbox.id = 'workCheckbox';
+                        
+                        label.appendChild(checkbox);
+                        label.appendChild(document.createTextNode(' 出勤'));
+                        
+                        const note = document.createElement('div');
+                        note.style.fontSize = '12px';
+                        note.style.color = '#666';
+                        note.style.marginTop = '10px';
+                        note.textContent = '※社員は通し勤務（ランチ＋ディナー）です';
+                        
+                        container.appendChild(label);
+                        container.appendChild(note);
+                    } else {
+                        // アルバイトの場合は時間帯を表示
+                        timeSlots.forEach(slot => {
+                            const label = document.createElement('label');
+                            const checkbox = document.createElement('input');
+                            checkbox.type = 'checkbox';
+                            checkbox.value = slot;
+                            checkbox.checked = currentSlots.includes(slot);
+                            
+                            label.appendChild(checkbox);
+                            label.appendChild(document.createTextNode(` ${slot}`));
+                            
+                            container.appendChild(label);
+                        });
+                    
+                    // 変更オプションを追加（アルバイトのみ）
+                    if (staffType === 'アルバイト' && currentSlots.length > 0) {
+                        const changeDiv = document.createElement('div');
+                        changeDiv.className = 'change-option';
+                        changeDiv.innerHTML = '<h4>⚙️ 時間帯を変更</h4>';
+                        
+                        currentSlots.forEach(slot => {
+                            if (changeMap[slot] && changeMap[slot].length > 0) {
+                                const optionDiv = document.createElement('div');
+                                optionDiv.style.marginBottom = '10px';
+                                optionDiv.innerHTML = `<strong>${slot}</strong> → `;
+                                
+                                changeMap[slot].forEach(targetSlot => {
+                                    const btn = document.createElement('button');
+                                    btn.textContent = targetSlot;
+                                    btn.className = 'btn';
+                                    btn.style.width = 'auto';
+                                    btn.style.padding = '5px 10px';
+                                    btn.style.marginLeft = '5px';
+                                    btn.style.fontSize = '12px';
+                                    btn.onclick = () => changeTimeSlot(slot, targetSlot);
+                                    optionDiv.appendChild(btn);
+                                });
+                                
+                                changeDiv.appendChild(optionDiv);
+                            }
+                        });
+                        
+                        container.appendChild(changeDiv);
+                    }
+                    }
+                    
+                    document.getElementById('shiftModal').classList.add('active');
+                });
+        }
+        
+        function changeTimeSlot(fromSlot, toSlot) {
+            // チェックボックスの状態を変更
+            const checkboxes = document.querySelectorAll('#timeSlotCheckboxes input[type="checkbox"]');
+            checkboxes.forEach(cb => {
+                if (cb.value === fromSlot) {
+                    cb.checked = false;
+                } else if (cb.value === toSlot) {
+                    cb.checked = true;
+                }
+            });
+            
+            alert(`${fromSlot} を ${toSlot} に変更しました。「保存」ボタンを押して確定してください。`);
+        }
+
+        async function saveShift() {
+            const staffType = currentStaff[modalData.staff]?.type || 'アルバイト';
+            let selectedSlots;
+            
+            if (staffType === '社員') {
+                // 社員の場合、出勤チェックがあれば全時間帯を設定
+                const workCheckbox = document.getElementById('workCheckbox');
+                if (workCheckbox && workCheckbox.checked) {
+                    selectedSlots = ['10-15', '17-23'];
+                } else {
+                    selectedSlots = [];
+                }
+            } else {
+                // アルバイトの場合、チェックされた時間帯を取得
+                const checkboxes = document.querySelectorAll('#timeSlotCheckboxes input[type="checkbox"]:checked');
+                selectedSlots = Array.from(checkboxes).map(cb => cb.value);
+            }
+            
+            const response = await fetch('/api/shifts', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    date: modalData.date,
+                    staff: modalData.staff,
+                    time_slots: selectedSlots
+                })
+            });
+            
+            if (response.ok) {
+                closeModal();
+                loadShiftTable();
+            }
+        }
+
+        // シフト生成
+        async function generateShift() {
+            const response = await fetch('/api/generate');
+            const months = await response.json();
+            
+            const container = document.getElementById('shiftResult');
+            container.innerHTML = '';
+            
+            if (months.length === 0) {
+                container.innerHTML = '<p>シフトデータがありません</p>';
+                return;
+            }
+            
+            months.forEach(monthData => {
+                const monthGroup = document.createElement('div');
+                monthGroup.className = 'date-group';
+                
+                // 月見出し
+                const monthHeader = document.createElement('h3');
+                monthHeader.textContent = monthData.month;
+                monthGroup.appendChild(monthHeader);
+                
+                // 表を作成
+                const table = document.createElement('table');
+                table.style.width = '100%';
+                table.style.fontSize = '12px';
+                
+                // ヘッダー行（日付と曜日）
+                let headerRow = '<tr><th>名前</th>';
+                monthData.dates.forEach(d => {
+                    headerRow += `<th>${d.day}日<br>(${d.weekday})</th>`;
+                });
+                headerRow += '</tr>';
+                table.innerHTML = headerRow;
+                
+                // 各スタッフの行
+                monthData.staff_list.forEach(staff => {
+                    let row = `<tr><td style="text-align: left;">${staff.type === '社員' ? '👔' : '👤'} ${staff.name}</td>`;
+                    staff.shifts.forEach(shifts => {
+                        const display = shifts.join('<br>');
+                        row += `<td>${display || '-'}</td>`;
+                    });
+                    row += '</tr>';
+                    table.innerHTML += row;
+                });
+                
+                monthGroup.appendChild(table);
+                
+                // 必要人数チェック（各日付ごと）
+                const checkDiv = document.createElement('div');
+                checkDiv.style.marginTop = '15px';
+                checkDiv.innerHTML = '<h4>必要人数チェック</h4>';
+                
+                monthData.dates.forEach(async d => {
+                    const checkResponse = await fetch('/api/check_requirements', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({date: d.date})
+                    });
+                    const checkData = await checkResponse.json();
+                    
+                    const dayCheck = document.createElement('div');
+                    dayCheck.style.marginBottom = '10px';
+                    dayCheck.innerHTML = `<strong>${d.day}日(${d.weekday})</strong>`;
+                    
+                    checkData.forEach(slot => {
+                        const staffOk = slot.staff_ok ? '✓' : '⚠';
+                        const parttimeOk = slot.parttime_ok ? '✓' : '⚠';
+                        const item = document.createElement('div');
+                        item.style.fontSize = '11px';
+                        item.style.marginLeft = '10px';
+                        item.innerHTML = `${slot.time_slot}: 社員${staffOk}(${slot.assigned_staff}/${slot.required_staff}) バイト${parttimeOk}(${slot.assigned_parttime}/${slot.required_parttime})`;
+                        dayCheck.appendChild(item);
+                    });
+                    
+                    checkDiv.appendChild(dayCheck);
+                });
+                
+                monthGroup.appendChild(checkDiv);
+                container.appendChild(monthGroup);
+            });
+        }
+
+        function exportCSV() {
+            window.location.href = '/api/export/csv';
+        }
+
+        // 月切り替え
+        function changeMonth(delta, type) {
+            currentMonth += delta;
+            if (currentMonth > 12) {
+                currentMonth = 1;
+                currentYear++;
+            } else if (currentMonth < 1) {
+                currentMonth = 12;
+                currentYear--;
+            }
+            
+            if (type === 'shifts') {
+                loadShiftTable();
+            }
+        }
+
+        function closeModal() {
+            document.querySelectorAll('.modal').forEach(modal => {
+                modal.classList.remove('active');
+            });
+        }
+
+        // 初期化
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, initializing...');
+            loadStaff();
+            
+            // ボタンの動作確認
+            const staffNameInput = document.getElementById('staffName');
+            const staffTypeSelect = document.getElementById('staffType');
+            const addStaffBtn = document.getElementById('addStaffBtn');
+            
+            if (staffNameInput) {
+                console.log('staffName input found');
+            } else {
+                console.error('staffName input NOT found');
+            }
+            if (staffTypeSelect) {
+                console.log('staffType select found');
+            } else {
+                console.error('staffType select NOT found');
+            }
+            if (addStaffBtn) {
+                console.log('addStaffBtn button found');
+                // イベントリスナーでも登録
+                addStaffBtn.addEventListener('click', function(e) {
+                    console.log('Button clicked via event listener');
+                    e.preventDefault();
+                    addStaff();
+                });
+            } else {
+                console.error('addStaffBtn button NOT found');
+            }
+            
+            // Enterキーでも追加できるようにする
+            if (staffNameInput) {
+                staffNameInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        console.log('Enter key pressed');
+                        addStaff();
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>
