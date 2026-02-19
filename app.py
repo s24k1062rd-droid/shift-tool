@@ -10,6 +10,9 @@ from datetime import datetime, timedelta
 import calendar
 import csv
 from io import StringIO, BytesIO
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from weasyprint import HTML, CSS
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'shift-tool-secret-key-2026'
@@ -505,29 +508,135 @@ def check_requirements():
 
 @app.route('/api/export/csv', methods=['GET'])
 def export_csv():
-    """CSVファイルをエクスポート"""
+    """PDFファイルをエクスポート（表形式）"""
     data = load_data()
     
-    output = StringIO()
-    writer = csv.writer(output)
-    writer.writerow(['日付', 'スタッフ名', '時間帯'])
+    # シフトを最適化
+    optimized_shifts = optimize_shifts(data)
     
-    for date in sorted(data['shifts'].keys()):
-        for staff, time_slots in sorted(data['shifts'][date].items()):
-            for slot in time_slots:
-                writer.writerow([date, staff, slot])
+    # 日付を収集
+    dates = sorted(set(list(data['shifts'].keys())))
     
-    # StringIOをBytesIOに変換
-    output.seek(0)
-    mem = BytesIO()
-    mem.write(output.getvalue().encode('utf-8-sig'))
-    mem.seek(0)
+    if not dates:
+        # 空のPDFを返す
+        html_string = '<html><body><h1>シフトデータがありません</h1></body></html>'
+        pdf_buffer = BytesIO()
+        HTML(string=html_string).write_pdf(pdf_buffer)
+        pdf_buffer.seek(0)
+    else:
+        # 月別にグループ化
+        monthly_data = {}
+        for date_str in dates:
+            date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+            month_key = f"{date_obj.year}-{date_obj.month:02d}"
+            if month_key not in monthly_data:
+                monthly_data[month_key] = []
+            monthly_data[month_key].append(date_str)
+        
+        # HTMLコンテンツを生成
+        html_content = '''
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <style>
+                body {
+                    font-family: "游ゴシック", "Yu Gothic", sans-serif;
+                    margin: 20px;
+                }
+                h2 {
+                    margin-top: 30px;
+                    page-break-after: avoid;
+                }
+                table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-bottom: 30px;
+                    page-break-inside: avoid;
+                }
+                th {
+                    background-color: #4472C4;
+                    color: white;
+                    padding: 8px;
+                    text-align: center;
+                    border: 1px solid #ccc;
+                    font-weight: bold;
+                    font-size: 12px;
+                }
+                td {
+                    border: 1px solid #ccc;
+                    padding: 8px;
+                    text-align: center;
+                    font-size: 12px;
+                }
+                td:first-child {
+                    text-align: left;
+                    font-weight: bold;
+                }
+            </style>
+        </head>
+        <body>
+        '''
+        
+        # 月ごとにテーブルを生成
+        for month_key, month_dates in sorted(monthly_data.items()):
+            first_date = datetime.strptime(month_dates[0], '%Y-%m-%d')
+            month_label = f"{first_date.year}年{first_date.month}月"
+            
+            # スタッフリストを取得
+            staff_set = set(data['staff'].keys())
+            for date_str in month_dates:
+                if date_str in optimized_shifts:
+                    staff_set.update(optimized_shifts[date_str].keys())
+            
+            staff_list = sorted(staff_set)
+            
+            html_content += f'<h2>{month_label}</h2>\n'
+            html_content += '<table>\n'
+            
+            # ヘッダー行
+            weekday_names = ['月', '火', '水', '木', '金', '土', '日']
+            html_content += '<tr><th>名前</th>'
+            for date_str in month_dates:
+                date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                weekday_jp = weekday_names[date_obj.weekday()]
+                html_content += f'<th>{date_obj.day}日<br/>({weekday_jp})</th>'
+            html_content += '</tr>\n'
+            
+            # データ行
+            for staff_name in staff_list:
+                html_content += '<tr>'
+                html_content += f'<td>{staff_name}</td>'
+                
+                for date_str in month_dates:
+                    time_slots = []
+                    if date_str in optimized_shifts and staff_name in optimized_shifts[date_str]:
+                        time_slots = optimized_shifts[date_str][staff_name]
+                    
+                    if time_slots:
+                        slot_html = '<br/>'.join(time_slots)
+                        html_content += f'<td>{slot_html}</td>'
+                    else:
+                        html_content += '<td>-</td>'
+                
+                html_content += '</tr>\n'
+            
+            html_content += '</table>\n'
+        
+        html_content += '''
+        </body>
+        </html>
+        '''
+        
+        # HTMLをPDFに変換
+        pdf_buffer = BytesIO()
+        HTML(string=html_content).write_pdf(pdf_buffer)
+        pdf_buffer.seek(0)
     
     return send_file(
-        mem,
-        mimetype='text/csv',
+        pdf_buffer,
+        mimetype='application/pdf',
         as_attachment=True,
-        download_name=f'shift_{datetime.now().strftime("%Y%m%d")}.csv'
+        download_name=f'shift_{datetime.now().strftime("%Y%m%d")}.pdf'
     )
 
 if __name__ == '__main__':
