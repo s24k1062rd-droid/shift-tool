@@ -195,6 +195,37 @@ def update_shift():
     
     return jsonify({'success': True})
 
+@app.route('/api/update-shift', methods=['POST'])
+def update_shift_inline():
+    """シフト表から手作業でシフトを更新（UI用）"""
+    staff_name = request.json.get('staff_name')
+    date = request.json.get('date')
+    shifts = request.json.get('shifts', [])
+    
+    if not date or not staff_name:
+        return jsonify({'error': 'パラメータが不足しています', 'success': False}), 400
+    
+    data = load_data()
+    
+    if staff_name not in data['staff']:
+        return jsonify({'error': 'スタッフが登録されていません', 'success': False}), 400
+    
+    if date not in data['shifts']:
+        data['shifts'][date] = {}
+    
+    if shifts:
+        data['shifts'][date][staff_name] = shifts
+    else:
+        # 空の場合は削除
+        if staff_name in data['shifts'][date]:
+            del data['shifts'][date][staff_name]
+        if not data['shifts'][date]:
+            del data['shifts'][date]
+    
+    save_data(data)
+    
+    return jsonify({'success': True})
+
 @app.route('/api/requirements/<year>/<month>', methods=['GET'])
 def get_requirements(year, month):
     """指定月の必要人数を取得"""

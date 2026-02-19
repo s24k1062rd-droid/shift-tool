@@ -800,11 +800,31 @@
                     td1.innerHTML = `${staff.type === '社員' ? '👔' : '👤'} ${staff.name}`;
                     row.appendChild(td1);
                     
-                    staff.shifts.forEach(shifts => {
+                    staff.shifts.forEach((shifts, dateIdx) => {
                         const td = document.createElement('td');
                         const display = shifts.join('<br>');
-                        td.textContent = display || '-';
+                        td.innerHTML = display || '-';
                         td.style.textAlign = 'center';
+                        td.style.cursor = 'pointer';
+                        td.style.padding = '5px';
+                        td.dataset.staffName = staff.name;
+                        td.dataset.dateStr = monthData.dates[dateIdx].date;
+                        td.dataset.currentShifts = JSON.stringify(shifts);
+                        
+                        // クリックで編集モードに
+                        td.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            showShiftEditMenu(td, monthData.dates[dateIdx]);
+                        });
+                        
+                        // ホバー時の視覚的フィードバック
+                        td.addEventListener('mouseover', () => {
+                            td.style.backgroundColor = '#fff3cd';
+                        });
+                        td.addEventListener('mouseout', () => {
+                            td.style.backgroundColor = '';
+                        });
+                        
                         row.appendChild(td);
                     });
                     
@@ -913,6 +933,113 @@
         
         function getStaffOrder(month) {
             return staffOrder[month] || null;
+        }
+        
+        // シフト編集メニューを表示
+        function showShiftEditMenu(td, dateInfo) {
+            const staffName = td.dataset.staffName;
+            const dateStr = td.dataset.dateStr;
+            const currentShifts = JSON.parse(td.dataset.currentShifts);
+            
+            // 既存のメニューがあれば削除
+            const existingMenu = document.getElementById('shiftEditMenu');
+            if (existingMenu) {
+                existingMenu.remove();
+            }
+            
+            // メニュー要素を作成
+            const menu = document.createElement('div');
+            menu.id = 'shiftEditMenu';
+            menu.style.position = 'fixed';
+            menu.style.top = event.clientY + 'px';
+            menu.style.left = event.clientX + 'px';
+            menu.style.backgroundColor = 'white';
+            menu.style.border = '1px solid #ccc';
+            menu.style.borderRadius = '4px';
+            menu.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+            menu.style.zIndex = '10000';
+            menu.style.minWidth = '150px';
+            
+            // オプションリスト
+            const options = ['シフトなし', '10-15', '17-23', '18-23', '19-23'];
+            
+            options.forEach(opt => {
+                const item = document.createElement('div');
+                item.style.padding = '8px 12px';
+                item.style.cursor = 'pointer';
+                item.style.borderBottom = '1px solid #eee';
+                
+                const displayName = opt === 'シフトなし' ? '-' : opt;
+                const isSelected = opt === 'シフトなし' ? currentShifts.length === 0 : currentShifts.includes(opt);
+                
+                item.innerHTML = isSelected ? `✓ ${displayName}` : displayName;
+                item.style.backgroundColor = isSelected ? '#e8f4f8' : 'white';
+                
+                item.addEventListener('mouseover', () => {
+                    item.style.backgroundColor = '#f0f0f0';
+                });
+                item.addEventListener('mouseout', () => {
+                    item.style.backgroundColor = isSelected ? '#e8f4f8' : 'white';
+                });
+                
+                item.addEventListener('click', async () => {
+                    // シフトを更新
+                    const newShifts = opt === 'シフトなし' ? [] : [opt];
+                    await updateShift(staffName, dateStr, newShifts);
+                    menu.remove();
+                });
+                
+                menu.appendChild(item);
+            });
+            
+            document.body.appendChild(menu);
+            
+            // 外側をクリックでメニュー閉じる
+            const closeMenu = (e) => {
+                if (!menu.contains(e.target)) {
+                    menu.remove();
+                    document.removeEventListener('click', closeMenu);
+                }
+            };
+            setTimeout(() => {
+                document.addEventListener('click', closeMenu);
+            }, 100);
+        }
+        
+        // シフトをサーバーに送信して更新
+        async function updateShift(staffName, dateStr, newShifts) {
+            try {
+                console.log('Updating shift:', {staffName, dateStr, newShifts});
+                
+                const response = await fetch('/api/update-shift', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        staff_name: staffName,
+                        date: dateStr,
+                        shifts: newShifts
+                    })
+                });
+                
+                console.log('Response status:', response.status);
+                const result = await response.json();
+                console.log('Response body:', result);
+                
+                if (response.ok) {
+                    if (result.success) {
+                        console.log('Update successful, regenerating shift...');
+                        // 表を再生成して反映
+                        await generateShift();
+                    } else {
+                        alert('エラー: ' + (result.error || '更新に失敗しました'));
+                    }
+                } else {
+                    alert('サーバーエラー: ' + response.status);
+                }
+            } catch (error) {
+                console.error('Error updating shift:', error);
+                alert('エラーが発生しました: ' + error.message);
+            }
         }
 
         function exportCSV() {
