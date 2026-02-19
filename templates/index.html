@@ -24,12 +24,47 @@
             background-color: #2196F3;
             color: white;
             padding: 15px;
-            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
 
         .header h1 {
             font-size: 20px;
+            margin: 0;
+            flex: 1;
+            text-align: center;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            font-size: 14px;
+        }
+
+        .role-badge {
+            background: rgba(255,255,255,0.2);
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .logout-btn {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid white;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.3s;
+        }
+
+        .logout-btn:hover {
+            background: rgba(255,255,255,0.3);
         }
 
         .tabs {
@@ -320,6 +355,39 @@
             border-left-color: #dc3545;
         }
 
+        .time-slot-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: #e3f2fd;
+            border: 1px solid #2196F3;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #1976d2;
+        }
+
+        .time-slot-tag .remove-btn {
+            background: #f44336;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            line-height: 1;
+        }
+
+        .time-slot-tag .remove-btn:hover {
+            background: #d32f2f;
+        }
+
         @media (max-width: 600px) {
             .tabs {
                 font-size: 12px;
@@ -334,12 +402,18 @@
 <body>
     <div class="header">
         <h1>📅 シフト作成ツール</h1>
+        <div class="header-right">
+            <span class="role-badge" id="storeBadge">店舗: 読込中</span>
+            <span class="role-badge" id="roleBadge">管理者</span>
+            <button class="logout-btn" onclick="logout()">🚪 ログアウト</button>
+        </div>
     </div>
 
     <div class="tabs">
         <button class="tab active" onclick="showTab('staff', event)">スタッフ</button>
         <button class="tab" onclick="showTab('shifts', event)">シフト希望</button>
         <button class="tab" onclick="showTab('generate', event)">シフト表</button>
+        <button class="tab" onclick="showTab('settings', event)">詳細設定</button>
     </div>
 
     <!-- スタッフ管理タブ -->
@@ -396,6 +470,102 @@
         </div>
     </div>
 
+    <!-- 詳細設定タブ -->
+    <div id="settings" class="content">
+        <div class="card">
+            <h2>🕐 時間帯管理</h2>
+            <p style="font-size: 12px; color: #666; margin-bottom: 15px;">
+                シフトで使用する時間帯を管理します。時間帯を追加・削除できます。
+            </p>
+
+            <div style="margin-bottom: 20px;">
+                <h3 style="margin-bottom: 10px; font-size: 16px;">現在の時間帯</h3>
+                <div id="timeSlotsList" style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px;">
+                    <!-- JavaScriptで動的に生成 -->
+                </div>
+                
+                <div style="display: flex; gap: 10px; margin-top: 15px;">
+                    <input type="text" id="newTimeSlot" placeholder="例：14-18" 
+                           style="flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                    <button class="btn btn-primary" onclick="addTimeSlot()">➕ 時間帯を追加</button>
+                </div>
+                <p style="font-size: 11px; color: #999; margin-top: 5px;">
+                    ※ 形式: 「開始時-終了時」（例：10-15, 17-23）
+                </p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>⚙️ シフト詳細設定</h2>
+            <p style="font-size: 12px; color: #666; margin-bottom: 15px;">
+                時間帯ごとの必要人数を設定できます。シフト生成時にこの設定が使用されます。
+            </p>
+
+            <h3 style="margin-top: 20px; margin-bottom: 10px; color: #2196F3;">📅 平日（日〜木）</h3>
+            <div class="settings-table">
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                    <thead>
+                        <tr style="background: #f5f5f5;">
+                            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">時間帯</th>
+                            <th style="padding: 10px; text-align: center; border: 1px solid #ddd;">社員</th>
+                            <th style="padding: 10px; text-align: center; border: 1px solid #ddd;">アルバイト</th>
+                        </tr>
+                    </thead>
+                    <tbody id="weekdaySettings">
+                        <!-- JavaScriptで動的に生成 -->
+                    </tbody>
+                </table>
+            </div>
+
+            <h3 style="margin-top: 20px; margin-bottom: 10px; color: #2196F3;">🎉 週末（金・土）</h3>
+            <div class="settings-table">
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                    <thead>
+                        <tr style="background: #f5f5f5;">
+                            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">時間帯</th>
+                            <th style="padding: 10px; text-align: center; border: 1px solid #ddd;">社員</th>
+                            <th style="padding: 10px; text-align: center; border: 1px solid #ddd;">アルバイト</th>
+                        </tr>
+                    </thead>
+                    <tbody id="weekendSettings">
+                        <!-- JavaScriptで動的に生成 -->
+                    </tbody>
+                </table>
+            </div>
+
+            <button class="btn btn-primary" onclick="saveShiftSettings()">💾 設定を保存</button>
+            <button class="btn" onclick="resetShiftSettings()" style="margin-left: 10px;">🔄 デフォルトに戻す</button>
+        </div>
+
+        <!-- パスワード変更セクション -->
+        <div class="card">
+            <h2>🔐 管理者パスワード変更</h2>
+            <p style="font-size: 12px; color: #666; margin-bottom: 15px;">
+                この店舗の管理者パスワードを変更します。変更後は新しいパスワードでログインしてください。
+            </p>
+
+            <div class="form-group">
+                <label>現在のパスワード</label>
+                <input type="password" id="currentPassword" placeholder="現在のパスワードを入力" autocomplete="off"
+                       style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+
+            <div class="form-group">
+                <label>新しいパスワード</label>
+                <input type="password" id="newPassword" placeholder="新しいパスワードを入力（4文字以上）" autocomplete="off"
+                       style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+
+            <div class="form-group">
+                <label>新しいパスワード（確認）</label>
+                <input type="password" id="confirmPassword" placeholder="新しいパスワードを再入力" autocomplete="off"
+                       style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+
+            <button class="btn btn-primary" onclick="changePassword()">🔑 パスワードを変更</button>
+        </div>
+    </div>
+
     <!-- モーダル（シフト希望入力） -->
     <div id="shiftModal" class="modal">
         <div class="modal-content">
@@ -416,6 +586,87 @@
         let timeSlots = [];
         let changeMap = {};  // 時間帯変更マップ
         let modalData = {};
+        let userRole = 'user';  // デフォルトはユーザー
+
+        // ページ読み込み時の初期化
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeUI();
+        });
+
+        // UI初期化（ロール別）
+        function initializeUI() {
+            // サーバーからロール情報を取得（クッキーまたはセッションから）
+            // 簡易的には、ページがロードされていることでセッション有効を確認
+            fetch('/api/check-auth')
+                .then(response => {
+                    if (response.status === 401) {
+                        // セッションなし
+                        window.location.href = '/login';
+                        return;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data && data.role) {
+                        userRole = data.role;
+                        // 店舗情報を表示
+                        const storeBadge = document.getElementById('storeBadge');
+                        if (data.store_code) {
+                            storeBadge.textContent = `🏪 ${data.store_code}`;
+                        }
+                        applyRoleBasedUI(data.role);
+                    }
+                })
+                .catch(error => {
+                    console.error('Auth check error:', error);
+                    window.location.href = '/login';
+                });
+        }
+
+        // ロール別UI適用
+        function applyRoleBasedUI(role) {
+            const roleBadge = document.getElementById('roleBadge');
+            const tabs = document.querySelectorAll('.tab');
+            
+            if (role === 'admin') {
+                roleBadge.textContent = '👔 管理者';
+                // 管理者用タブをすべて表示
+                tabs.forEach(tab => tab.style.display = 'block');
+                // 最初のタブを表示
+                if (tabs.length > 0) {
+                    setTimeout(() => showTab('staff', {target: tabs[0]}), 100);
+                }
+            } else {
+                roleBadge.textContent = '👤 スタッフ';
+                // スタッフ用タブのみ表示（「シフト希望」のみ）
+                tabs.forEach((tab, index) => {
+                    if (tab.textContent.includes('シフト希望')) {
+                        tab.style.display = 'block';
+                    } else {
+                        tab.style.display = 'none';
+                    }
+                });
+                // シフト希望タブを最初に表示
+                setTimeout(() => {
+                    const shiftsTab = Array.from(tabs).find(t => t.textContent.includes('シフト希望'));
+                    if (shiftsTab) {
+                        showTab('shifts', {target: shiftsTab});
+                    }
+                }, 100);
+            }
+        }
+
+        // ログアウト
+        async function logout() {
+            if (confirm('ログアウトしますか？')) {
+                try {
+                    await fetch('/api/logout', {method: 'POST'});
+                    window.location.href = '/login';
+                } catch (error) {
+                    alert('ログアウトエラー: ' + error.message);
+                }
+            }
+        }
 
         // タブ切り替え
         function showTab(tabName, event) {
@@ -431,6 +682,8 @@
                 loadStaff();
             } else if (tabName === 'shifts') {
                 loadShiftTable();
+            } else if (tabName === 'settings') {
+                loadShiftSettings();
             }
         }
 
@@ -1111,7 +1364,319 @@
                     }
                 });
             }
+            
+            // 時間帯入力フィールドのEnterキー対応
+            const newTimeSlotInput = document.getElementById('newTimeSlot');
+            if (newTimeSlotInput) {
+                newTimeSlotInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addTimeSlot();
+                    }
+                });
+            }
         });
+
+        // ========== シフト詳細設定関連 ==========
+        
+        let currentTimeSlots = [];
+
+        async function loadShiftSettings() {
+            try {
+                const response = await fetch('/api/shift-settings');
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentTimeSlots = data.time_slots || ['10-15', '17-23', '18-23', '19-23'];
+                    displayTimeSlots(currentTimeSlots);
+                    displayShiftSettings(data.settings, currentTimeSlots);
+                }
+            } catch (error) {
+                console.error('設定読み込みエラー:', error);
+                alert('設定の読み込みに失敗しました');
+            }
+        }
+
+        function displayTimeSlots(timeSlots) {
+            const container = document.getElementById('timeSlotsList');
+            container.innerHTML = '';
+            
+            timeSlots.forEach(slot => {
+                const tag = document.createElement('div');
+                tag.className = 'time-slot-tag';
+                tag.innerHTML = `
+                    <span>${slot}</span>
+                    <button class="remove-btn" onclick="removeTimeSlot('${slot}')" title="削除">×</button>
+                `;
+                container.appendChild(tag);
+            });
+        }
+
+        async function addTimeSlot() {
+            const input = document.getElementById('newTimeSlot');
+            const newSlot = input.value.trim();
+            
+            if (!newSlot) {
+                alert('時間帯を入力してください');
+                return;
+            }
+            
+            // 形式チェック（例：10-15）
+            if (!/^\d{1,2}-\d{1,2}$/.test(newSlot)) {
+                alert('形式が正しくありません。「開始時-終了時」の形式で入力してください（例：10-15）');
+                return;
+            }
+            
+            if (currentTimeSlots.includes(newSlot)) {
+                alert('この時間帯は既に登録されています');
+                return;
+            }
+            
+            currentTimeSlots.push(newSlot);
+            
+            try {
+                const response = await fetch('/api/time-slots', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({time_slots: currentTimeSlots})
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    input.value = '';
+                    loadShiftSettings(); // 再読み込み
+                    alert('✅ 時間帯を追加しました');
+                } else {
+                    alert('❌ 追加に失敗しました: ' + (data.error || ''));
+                    currentTimeSlots.pop(); // 失敗したら戻す
+                }
+            } catch (error) {
+                console.error('時間帯追加エラー:', error);
+                alert('❌ 追加中にエラーが発生しました');
+                currentTimeSlots.pop();
+            }
+        }
+
+        async function removeTimeSlot(slot) {
+            if (!confirm(`時間帯「${slot}」を削除しますか？\n※ この時間帯に関連するシフトデータも影響を受ける可能性があります。`)) {
+                return;
+            }
+            
+            currentTimeSlots = currentTimeSlots.filter(s => s !== slot);
+            
+            try {
+                const response = await fetch('/api/time-slots', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({time_slots: currentTimeSlots})
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    loadShiftSettings(); // 再読み込み
+                    alert('✅ 時間帯を削除しました');
+                } else {
+                    alert('❌ 削除に失敗しました: ' + (data.error || ''));
+                    currentTimeSlots.push(slot); // 失敗したら戻す
+                }
+            } catch (error) {
+                console.error('時間帯削除エラー:', error);
+                alert('❌ 削除中にエラーが発生しました');
+                currentTimeSlots.push(slot);
+            }
+        }
+
+        function displayShiftSettings(settings, timeSlots) {
+            if (!timeSlots) {
+                timeSlots = ['10-15', '17-23', '18-23', '19-23'];
+            }
+            
+            // 平日設定を表示
+            const weekdayTbody = document.getElementById('weekdaySettings');
+            weekdayTbody.innerHTML = '';
+            timeSlots.forEach(slot => {
+                const config = settings.weekday[slot] || {staff: 1, parttime: 0};
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">${slot}</td>
+                    <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">
+                        <input type="number" min="0" max="10" value="${config.staff}" 
+                               data-day="weekday" data-slot="${slot}" data-type="staff"
+                               style="width: 60px; padding: 5px; text-align: center; border: 1px solid #ddd; border-radius: 4px;">
+                    </td>
+                    <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">
+                        <input type="number" min="0" max="10" value="${config.parttime}" 
+                               data-day="weekday" data-slot="${slot}" data-type="parttime"
+                               style="width: 60px; padding: 5px; text-align: center; border: 1px solid #ddd; border-radius: 4px;">
+                    </td>
+                `;
+                weekdayTbody.appendChild(row);
+            });
+            
+            // 週末設定を表示
+            const weekendTbody = document.getElementById('weekendSettings');
+            weekendTbody.innerHTML = '';
+            timeSlots.forEach(slot => {
+                const config = settings.weekend[slot] || {staff: 1, parttime: 0};
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">${slot}</td>
+                    <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">
+                        <input type="number" min="0" max="10" value="${config.staff}" 
+                               data-day="weekend" data-slot="${slot}" data-type="staff"
+                               style="width: 60px; padding: 5px; text-align: center; border: 1px solid #ddd; border-radius: 4px;">
+                    </td>
+                    <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">
+                        <input type="number" min="0" max="10" value="${config.parttime}" 
+                               data-day="weekend" data-slot="${slot}" data-type="parttime"
+                               style="width: 60px; padding: 5px; text-align: center; border: 1px solid #ddd; border-radius: 4px;">
+                    </td>
+                `;
+                weekendTbody.appendChild(row);
+            });
+        }
+
+        async function saveShiftSettings() {
+            try {
+                // 入力値から設定データを収集
+                const settings = {
+                    weekday: {},
+                    weekend: {}
+                };
+                
+                // 現在の時間帯リストを使用
+                const timeSlots = currentTimeSlots;
+                
+                // 平日設定
+                timeSlots.forEach(slot => {
+                    const staffInput = document.querySelector(`input[data-day="weekday"][data-slot="${slot}"][data-type="staff"]`);
+                    const parttimeInput = document.querySelector(`input[data-day="weekday"][data-slot="${slot}"][data-type="parttime"]`);
+                    if (staffInput && parttimeInput) {
+                        settings.weekday[slot] = {
+                            staff: parseInt(staffInput.value) || 0,
+                            parttime: parseInt(parttimeInput.value) || 0
+                        };
+                    }
+                });
+                
+                // 週末設定
+                timeSlots.forEach(slot => {
+                    const staffInput = document.querySelector(`input[data-day="weekend"][data-slot="${slot}"][data-type="staff"]`);
+                    const parttimeInput = document.querySelector(`input[data-day="weekend"][data-slot="${slot}"][data-type="parttime"]`);
+                    if (staffInput && parttimeInput) {
+                        settings.weekend[slot] = {
+                            staff: parseInt(staffInput.value) || 0,
+                            parttime: parseInt(parttimeInput.value) || 0
+                        };
+                    }
+                });
+                
+                const response = await fetch('/api/shift-settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({settings: settings})
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('✅ 設定を保存しました');
+                } else {
+                    alert('❌ 保存に失敗しました: ' + (data.error || ''));
+                }
+            } catch (error) {
+                console.error('設定保存エラー:', error);
+                alert('❌ 保存中にエラーが発生しました');
+            }
+        }
+
+        async function resetShiftSettings() {
+            if (!confirm('デフォルト設定に戻しますか？')) {
+                return;
+            }
+            
+            // 現在の時間帯に対してデフォルト設定を生成
+            const defaultSettings = {
+                weekday: {},
+                weekend: {}
+            };
+            
+            currentTimeSlots.forEach(slot => {
+                // デフォルト値（必要に応じて調整）
+                defaultSettings.weekday[slot] = {staff: 1, parttime: 1};
+                defaultSettings.weekend[slot] = {staff: 1, parttime: 1};
+            });
+            
+            displayShiftSettings(defaultSettings, currentTimeSlots);
+            alert('✅ デフォルト設定を表示しました。保存するには「設定を保存」ボタンを押してください。');
+        }
+
+        // ========== パスワード変更関連 ==========
+
+        async function changePassword() {
+            const currentPassword = document.getElementById('currentPassword').value;
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+
+            // 入力チェック
+            if (!currentPassword) {
+                alert('現在のパスワードを入力してください');
+                return;
+            }
+
+            if (!newPassword) {
+                alert('新しいパスワードを入力してください');
+                return;
+            }
+
+            if (newPassword.length < 4) {
+                alert('パスワードは4文字以上にしてください');
+                return;
+            }
+
+            if (newPassword !== confirmPassword) {
+                alert('新しいパスワードが一致しません');
+                return;
+            }
+
+            if (currentPassword === newPassword) {
+                alert('新しいパスワードは現在のパスワードと異なるものにしてください');
+                return;
+            }
+
+            if (!confirm('パスワードを変更しますか？\n変更後は新しいパスワードでログインしてください。')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/change-password', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        current_password: currentPassword,
+                        new_password: newPassword
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('✅ パスワードを変更しました！\n次回ログイン時から新しいパスワードが必要です。');
+                    // 入力欄をクリア
+                    document.getElementById('currentPassword').value = '';
+                    document.getElementById('newPassword').value = '';
+                    document.getElementById('confirmPassword').value = '';
+                } else {
+                    alert('❌ パスワード変更に失敗しました: ' + (data.error || ''));
+                }
+            } catch (error) {
+                console.error('パスワード変更エラー:', error);
+                alert('❌ パスワード変更中にエラーが発生しました');
+            }
+        }
+
     </script>
 </body>
 </html>

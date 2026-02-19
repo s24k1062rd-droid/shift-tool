@@ -30,6 +30,11 @@ ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'admin123')
 # データファイルのパス
 DATA_FILE = 'shift_data.json'
 
+def get_store_data_file(store_code):
+    """店舗ごとのデータファイルパスを取得"""
+    os.makedirs('shift_data', exist_ok=True)
+    return os.path.join('shift_data', f'{store_code}_data.json')
+
 # 固定のシフト時間帯
 SHIFT_TIME_SLOTS = [
     '10-15',
@@ -70,10 +75,35 @@ def get_covered_slots(time_slots):
     
     return sorted(list(covered))
 
-def load_data():
+def get_default_time_slots():
+    """デフォルトの時間帯を返す"""
+    return ['10-15', '17-23', '18-23', '19-23']
+
+def get_default_shift_settings():
+    """デフォルトのシフト設定を返す"""
+    return {
+        'weekday': {  # 日〜木
+            '10-15': {'staff': 1, 'parttime': 1},
+            '17-23': {'staff': 1, 'parttime': 0},
+            '18-23': {'staff': 1, 'parttime': 1},
+            '19-23': {'staff': 1, 'parttime': 2}
+        },
+        'weekend': {  # 金土祝前日
+            '10-15': {'staff': 1, 'parttime': 1},
+            '17-23': {'staff': 1, 'parttime': 1},
+            '18-23': {'staff': 1, 'parttime': 2},
+            '19-23': {'staff': 1, 'parttime': 3}
+        }
+    }
+
+def load_data(store_code=None):
     """データを読み込み"""
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, 'r', encoding='utf-8') as f:
+    if store_code is None:
+        store_code = session.get('store_code', 'default')
+    
+    data_file = get_store_data_file(store_code)
+    if os.path.exists(data_file):
+        with open(data_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             # 旧データとの互換性のため、staffがリストの場合は辞書に変換
             if isinstance(data.get('staff'), list):
@@ -81,22 +111,104 @@ def load_data():
                 for name in data['staff']:
                     staff_dict[name] = {'type': 'アルバイト'}  # デフォルトはアルバイト
                 data['staff'] = staff_dict
+            # shift_settingsがない場合はデフォルトを設定
+            if 'shift_settings' not in data:
+                data['shift_settings'] = get_default_shift_settings()
+            # time_slotsがない場合はデフォルトを設定
+            if 'time_slots' not in data:
+                data['time_slots'] = get_default_time_slots()
+            # admin_passwordがない場合はデフォルトを設定
+            if 'admin_password' not in data:
+                data['admin_password'] = ADMIN_PASSWORD
             return data
     return {
         'staff': {},  # スタッフ情報の辞書 {name: {type: '社員' or 'アルバイト'}}
         'shifts': {},  # {date: {staff: [time_slots]}}
-        'requirements': {}  # {date: {time_slot: count}}
+        'requirements': {},  # {date: {time_slot: count}}
+        'shift_settings': get_default_shift_settings(),  # シフト詳細設定
+        'time_slots': get_default_time_slots(),  # 時間帯リスト
+        'admin_password': ADMIN_PASSWORD  # 管理者パスワード（店舗ごと）
     }
 
-def save_data(data):
+def save_data(data, store_code=None):
     """データを保存"""
-    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+    if store_code is None:
+        store_code = session.get('store_code', 'default')
+    
+    data_file = get_store_data_file(store_code)
+    os.makedirs(os.path.dirname(data_file), exist_ok=True)
+    with open(data_file, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 @app.route('/')
 def index():
-    """トップページ"""
-    return render_template('index.html')
+    """トップページ（ログイン状態確認）"""
+    if 'role' in session:
+        return render_template('index.html', role=session['role'])
+    return redirect(url_for('login_page'))
+
+@app.route('/login', methods=['GET'])
+def login_page():
+    """ログイン画面"""
+    return render_template('login.html')
+
+@app.route('/api/login', methods=['POST'])
+def api_login():
+    """ログイン処理"""
+    data_request = request.json
+    password = data_request.get('password', '')
+    store_code = data_request.get('store_code', '').strip()
+    role = data_request.get('role', 'user')
+    
+    if not store_code:
+        return jsonify({'success': False, 'error': '店舗コードを入力してください'}), 400
+    
+    # 店舗データを読み込み（セッション設定前なので直接指定）
+    data_file = get_store_data_file(store_code)
+    if os.path.exists(data_file):
+        with open(data_file, 'r', encoding='utf-8') as f:
+            store_data = json.load(f)
+        store_password = store_data.get('admin_password', ADMIN_PASSWORD)
+    else:
+        # 新規店舗の場合はデフォルトパスワード
+        store_password = ADMIN_PASSWORD
+    
+    # 管理者パスワード確認
+    if role == 'admin' and password != store_password:
+        return jsonify({'success': False, 'error': 'パスワードが違います'}), 401
+    
+    # セッションに情報を保存
+    session['role'] = role
+    session['store_code'] = store_code
+    session.permanent = True
+    
+    return jsonify({'success': True, 'role': role, 'store_code': store_code})
+
+@app.route('/api/logout', methods=['POST'])
+def api_logout():
+    """ログアウト処理"""
+    session.clear()
+    return jsonify({'success': True})
+
+@app.route('/api/check-auth', methods=['GET'])
+def check_auth():
+    """認証状態確認"""
+    if 'role' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    return jsonify({
+        'role': session['role'],
+        'store_code': session.get('store_code', 'default'),
+        'success': True
+    })
+
+def require_admin(f):
+    """管理者専用エンドポイント用デコレータ"""
+    def decorated(*args, **kwargs):
+        if session.get('role') != 'admin':
+            return jsonify({'error': '管理者のみアクセス可能です'}), 403
+        return f(*args, **kwargs)
+    decorated.__name__ = f.__name__
+    return decorated
 
 @app.route('/api/staff', methods=['GET'])
 def get_staff():
@@ -105,8 +217,9 @@ def get_staff():
     return jsonify(data['staff'])
 
 @app.route('/api/staff', methods=['POST'])
+@require_admin
 def add_staff():
-    """スタッフを追加"""
+    """スタッフを追加（管理者のみ）"""
     staff_name = request.json.get('name', '').strip()
     staff_type = request.json.get('type', 'アルバイト')  # 社員 or アルバイト
     
@@ -127,8 +240,9 @@ def add_staff():
     return jsonify({'success': True, 'staff': data['staff']})
 
 @app.route('/api/staff/<staff_name>', methods=['DELETE'])
+@require_admin
 def delete_staff(staff_name):
-    """スタッフを削除"""
+    """スタッフを削除（管理者のみ）"""
     data = load_data()
     
     if staff_name not in data['staff']:
@@ -166,7 +280,7 @@ def get_shifts(year, month):
     return jsonify({
         'shifts': month_shifts,
         'staff': data['staff'],
-        'time_slots': SHIFT_TIME_SLOTS,
+        'time_slots': data.get('time_slots', SHIFT_TIME_SLOTS),
         'change_map': SHIFT_CHANGE_MAP,
         'days_in_month': days_in_month
     })
@@ -203,8 +317,9 @@ def update_shift():
     return jsonify({'success': True})
 
 @app.route('/api/update-shift', methods=['POST'])
+@require_admin
 def update_shift_inline():
-    """シフト表から手作業でシフトを更新（UI用）"""
+    """シフト表から手作業でシフトを更新（管理者のみ）"""
     staff_name = request.json.get('staff_name')
     date = request.json.get('date')
     shifts = request.json.get('shifts', [])
@@ -256,8 +371,9 @@ def get_requirements(year, month):
     })
 
 @app.route('/api/requirements', methods=['POST'])
+@require_admin
 def update_requirement():
-    """必要人数を更新"""
+    """必要人数を更新（管理者のみ）"""
     date = request.json.get('date')
     time_slot = request.json.get('time_slot')
     count = request.json.get('count')
@@ -286,9 +402,104 @@ def update_requirement():
     
     return jsonify({'success': True})
 
+@app.route('/api/shift-settings', methods=['GET'])
+@require_admin
+def get_shift_settings():
+    """シフト詳細設定を取得（管理者のみ）"""
+    data = load_data()
+    settings = data.get('shift_settings', get_default_shift_settings())
+    time_slots = data.get('time_slots', get_default_time_slots())
+    return jsonify({'success': True, 'settings': settings, 'time_slots': time_slots})
+
+@app.route('/api/shift-settings', methods=['POST'])
+@require_admin
+def update_shift_settings():
+    """シフト詳細設定を更新（管理者のみ）"""
+    settings = request.json.get('settings')
+    
+    if not settings:
+        return jsonify({'error': '設定データが不足しています'}), 400
+    
+    data = load_data()
+    data['shift_settings'] = settings
+    save_data(data)
+    
+    return jsonify({'success': True})
+
+@app.route('/api/time-slots', methods=['GET'])
+@require_admin
+def get_time_slots():
+    """時間帯リストを取得（管理者のみ）"""
+    data = load_data()
+    time_slots = data.get('time_slots', get_default_time_slots())
+    return jsonify({'success': True, 'time_slots': time_slots})
+
+@app.route('/api/time-slots', methods=['POST'])
+@require_admin
+def update_time_slots():
+    """時間帯リストを更新（管理者のみ）"""
+    time_slots = request.json.get('time_slots')
+    
+    if not time_slots or not isinstance(time_slots, list):
+        return jsonify({'error': '時間帯データが不正です'}), 400
+    
+    data = load_data()
+    
+    # 古い時間帯データとの整合性を保つため、shift_settingsも更新
+    old_slots = data.get('time_slots', [])
+    new_settings = data.get('shift_settings', get_default_shift_settings())
+    
+    # 新しい時間帯に対してデフォルト設定を追加
+    for slot in time_slots:
+        if slot not in new_settings.get('weekday', {}):
+            new_settings['weekday'][slot] = {'staff': 1, 'parttime': 1}
+        if slot not in new_settings.get('weekend', {}):
+            new_settings['weekend'][slot] = {'staff': 1, 'parttime': 1}
+    
+    # 削除された時間帯の設定を削除
+    for day_type in ['weekday', 'weekend']:
+        slots_to_remove = [s for s in new_settings[day_type].keys() if s not in time_slots]
+        for slot in slots_to_remove:
+            del new_settings[day_type][slot]
+    
+    data['time_slots'] = time_slots
+    data['shift_settings'] = new_settings
+    save_data(data)
+    
+    return jsonify({'success': True})
+
+@app.route('/api/change-password', methods=['POST'])
+@require_admin
+def change_password():
+    """管理者パスワードを変更（管理者のみ）"""
+    current_password = request.json.get('current_password', '')
+    new_password = request.json.get('new_password', '')
+    
+    if not new_password:
+        return jsonify({'error': '新しいパスワードを入力してください'}), 400
+    
+    if len(new_password) < 4:
+        return jsonify({'error': 'パスワードは4文字以上にしてください'}), 400
+    
+    data = load_data()
+    
+    # 現在のパスワード確認
+    current_stored_password = data.get('admin_password', ADMIN_PASSWORD)
+    if current_password != current_stored_password:
+        return jsonify({'error': '現在のパスワードが違います'}), 401
+    
+    # 新しいパスワードを保存
+    data['admin_password'] = new_password
+    save_data(data)
+    
+    return jsonify({'success': True, 'message': 'パスワードを変更しました'})
+    
+    return jsonify({'success': True})
+
 @app.route('/api/generate', methods=['GET'])
+@require_admin
 def generate_shift():
-    """シフト表を生成（表形式・最適化機能付き）"""
+    """シフト表を生成（表形式・最適化機能付き）（管理者のみ）"""
     data = load_data()
     
     # 日付を収集してソート
@@ -459,44 +670,24 @@ def optimize_shifts(data):
     
     return optimized
 
-def get_required_staff(date_str, time_slot):
+def get_required_staff(date_str, time_slot, settings=None):
     """指定日時の必要アルバイト数を計算（社員は通し勤務で固定、調整対象外）"""
     date_obj = datetime.strptime(date_str, '%Y-%m-%d')
     weekday = date_obj.weekday()  # 0=月, 6=日
     
-    # 祝日判定（簡易版：実際の祝日判定は別途実装が必要）
-    is_friday_or_saturday = weekday in [4, 5]  # 金土
-    is_sunday_to_thursday = weekday in [6, 0, 1, 2, 3]  # 日～木
+    # 設定を取得
+    if settings is None:
+        data = load_data()
+        settings = data.get('shift_settings', get_default_shift_settings())
     
-    required_parttime = 0
+    # 金土判定
+    is_weekend = weekday in [4, 5]  # 金土
     
-    if time_slot == '10-15':
-        # ランチ：アルバイト1人
-        required_parttime = 1
-    elif time_slot == '17-23':
-        # 17-23の時間帯
-        if is_friday_or_saturday:
-            # 金土祝前日：アルバイト1人
-            required_parttime = 1
-        else:
-            # 日～木：アルバイト0人（社員のみ）
-            required_parttime = 0
-    elif time_slot == '18-23':
-        # 18-23の時間帯
-        if is_friday_or_saturday:
-            # 金土祝前日：アルバイト2人
-            required_parttime = 2
-        else:
-            # 日～木：アルバイト1人
-            required_parttime = 1
-    elif time_slot == '19-23':
-        # 19-23の時間帯
-        if is_friday_or_saturday:
-            # 金土祝前日：アルバイト3人
-            required_parttime = 3
-        else:
-            # 日～木：アルバイト2人
-            required_parttime = 2
+    # 曜日に応じた設定を選択
+    day_type = 'weekend' if is_weekend else 'weekday'
+    time_settings = settings.get(day_type, {}).get(time_slot, {})
+    
+    required_parttime = time_settings.get('parttime', 0)
     
     return required_parttime
 
@@ -548,8 +739,9 @@ def check_requirements():
     return jsonify(results)
 
 @app.route('/api/export/csv', methods=['GET'])
+@require_admin
 def export_csv():
-    """PDFファイルをエクスポート（表形式）"""
+    """PDFファイルをエクスポート（表形式）（管理者のみ）"""
     data = load_data()
     
     # クエリパラメータからスタッフ順序を取得

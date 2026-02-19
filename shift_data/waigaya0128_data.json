@@ -1,0 +1,66 @@
+{
+  "staff": {
+    "しゅうと": {
+      "type": "社員"
+    }
+  },
+  "shifts": {
+    "2026-02-01": {
+      "しゅうと": [
+        "10-15"
+      ]
+    },
+    "2026-02-02": {
+      "しゅうと": [
+        "10-15",
+        "17-23"
+      ]
+    }
+  },
+  "requirements": {},
+  "shift_settings": {
+    "weekday": {
+      "10-15": {
+        "staff": 1,
+        "parttime": 1
+      },
+      "17-23": {
+        "staff": 1,
+        "parttime": 0
+      },
+      "18-23": {
+        "staff": 1,
+        "parttime": 1
+      },
+      "19-23": {
+        "staff": 1,
+        "parttime": 2
+      }
+    },
+    "weekend": {
+      "10-15": {
+        "staff": 1,
+        "parttime": 1
+      },
+      "17-23": {
+        "staff": 1,
+        "parttime": 1
+      },
+      "18-23": {
+        "staff": 1,
+        "parttime": 2
+      },
+      "19-23": {
+        "staff": 1,
+        "parttime": 3
+      }
+    }
+  },
+  "time_slots": [
+    "10-15",
+    "17-23",
+    "18-23",
+    "19-23"
+  ],
+  "admin_password": "tsudanuma0220"
+}

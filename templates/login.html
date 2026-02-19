@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>シフト管理ツール - ログイン</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: "Yu Gothic", "Meiryo", sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 400px;
+            padding: 40px;
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo h1 {
+            color: #333;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .logo p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .role-selector {
+            margin-bottom: 30px;
+        }
+
+        .role-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .role-btn {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #ddd;
+            background: white;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+
+        .role-btn.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .role-btn:hover {
+            border-color: #667eea;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .form-group.active {
+            display: block;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        input[type="password"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            transition: border 0.3s;
+        }
+
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            transition: border 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .password-hint {
+            margin-top: 8px;
+            font-size: 12px;
+            color: #666;
+            padding: 8px;
+            background: #f5f5f5;
+            border-radius: 3px;
+        }
+
+        .login-btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .login-btn:active {
+            transform: translateY(0);
+        }
+
+        .error-message {
+            color: #d32f2f;
+            padding: 12px;
+            background: #ffebee;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            display: none;
+            font-size: 14px;
+        }
+
+        .success-message {
+            color: #388e3c;
+            padding: 12px;
+            background: #e8f5e9;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            display: none;
+            font-size: 14px;
+        }
+
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 12px;
+            margin-bottom: 20px;
+            border-radius: 3px;
+            font-size: 13px;
+            color: #1565c0;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo">
+            <h1>📅 シフト管理ツール</h1>
+            <p>管理者・スタッフ用</p>
+        </div>
+
+        <div class="error-message" id="errorMessage"></div>
+        <div class="success-message" id="successMessage"></div>
+
+        <div class="role-selector">
+            <div class="role-buttons">
+                <button class="role-btn active" onclick="selectRole('admin')">👔 管理者</button>
+                <button class="role-btn" onclick="selectRole('user')">👤 スタッフ</button>
+            </div>
+        </div>
+
+        <form onsubmit="handleLogin(event)">
+            <!-- 共通：店舗コード -->
+            <div class="form-group active">
+                <label for="storeCode">店舗コード</label>
+                <input type="text" id="storeCode" placeholder="例：store001" required autocomplete="off">
+                <div class="password-hint">💡 複数店舗で同じシステムを使用できます</div>
+            </div>
+
+            <!-- 管理者ログイン -->
+            <div class="form-group active" id="adminForm">
+                <label for="adminPassword">管理者パスワード</label>
+                <input type="password" id="adminPassword" placeholder="パスワードを入力" autocomplete="off">
+                <div class="password-hint">💡 管理者のみシフト生成・編集が可能です</div>
+            </div>
+
+            <!-- スタッフログイン -->
+            <div class="form-group" id="userForm">
+                <div class="info-box">
+                    ✓ スタッフモードではシフト希望を提出し、生成されたシフトを確認できます
+                </div>
+            </div>
+
+            <button type="submit" class="login-btn" id="loginBtn">ログイン</button>
+        </form>
+    </div>
+
+    <script>
+        let currentRole = 'admin';
+
+        function selectRole(role) {
+            currentRole = role;
+            
+            // ボタン状態を更新
+            document.querySelectorAll('.role-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            // フォーム表示を切り替え
+            document.getElementById('adminForm').classList.remove('active');
+            document.getElementById('userForm').classList.remove('active');
+
+            if (role === 'admin') {
+                document.getElementById('adminForm').classList.add('active');
+            } else {
+                document.getElementById('userForm').classList.add('active');
+            }
+        }
+
+        async function handleLogin(event) {
+            event.preventDefault();
+            
+            const errorMsg = document.getElementById('errorMessage');
+            const successMsg = document.getElementById('successMessage');
+            errorMsg.style.display = 'none';
+            successMsg.style.display = 'none';
+
+            const storeCode = document.getElementById('storeCode').value.trim();
+            if (!storeCode) {
+                errorMsg.textContent = '店舗コードを入力してください';
+                errorMsg.style.display = 'block';
+                return;
+            }
+
+            let password = '';
+            if (currentRole === 'admin') {
+                password = document.getElementById('adminPassword').value;
+            }
+            // userの場合は空文字列でOK
+
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        role: currentRole,
+                        password: password,
+                        store_code: storeCode
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    successMsg.textContent = 'ログイン成功！ リダイレクト中...';
+                    successMsg.style.display = 'block';
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 1000);
+                } else {
+                    errorMsg.textContent = data.error || 'ログインに失敗しました';
+                    errorMsg.style.display = 'block';
+                }
+            } catch (error) {
+                errorMsg.textContent = 'エラーが発生しました: ' + error.message;
+                errorMsg.style.display = 'block';
+            }
+        }
+
+        // Enterキーでログイン
+        document.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && currentRole === 'admin') {
+                const form = document.querySelector('form');
+                handleLogin({preventDefault: () => {}});
+            }
+        });
+    </script>
+</body>
+</html>
