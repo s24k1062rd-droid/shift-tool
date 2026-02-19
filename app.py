@@ -514,6 +514,16 @@ def export_csv():
     """PDFファイルをエクスポート（表形式）"""
     data = load_data()
     
+    # クエリパラメータからスタッフ順序を取得
+    order_param = request.args.get('order', None)
+    staff_order = {}
+    if order_param:
+        try:
+            import urllib.parse
+            staff_order = json.loads(urllib.parse.unquote(order_param))
+        except:
+            staff_order = {}
+    
     # シフトを最適化
     optimized_shifts = optimize_shifts(data)
     
@@ -608,6 +618,19 @@ def export_csv():
                     staff_set.update(optimized_shifts[date_str].keys())
             
             staff_list = sorted(staff_set)
+            
+            # スタッフ順序があれば適用
+            if month_label in staff_order and staff_order[month_label]:
+                # 指定された順序で並べ替え、存在しないスタッフは末尾に追加
+                ordered_list = []
+                for name in staff_order[month_label]:
+                    if name in staff_list:
+                        ordered_list.append(name)
+                # 順序リストにない残りのスタッフを追加
+                for name in staff_list:
+                    if name not in ordered_list:
+                        ordered_list.append(name)
+                staff_list = ordered_list
             
             header_row = [Paragraph("名前", header_style)]
             for date_str in month_dates:

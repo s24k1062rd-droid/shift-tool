@@ -702,6 +702,8 @@
         }
 
         // シフト生成
+        let staffOrder = {};  // 月ごとのスタッフ順序を保存
+
         async function generateShift() {
             const response = await fetch('/api/generate');
             const months = await response.json();
@@ -723,31 +725,98 @@
                 monthHeader.textContent = monthData.month;
                 monthGroup.appendChild(monthHeader);
                 
+                // 行順序調整パネル
+                const controlDiv = document.createElement('div');
+                controlDiv.style.marginBottom = '10px';
+                controlDiv.style.padding = '10px';
+                controlDiv.style.backgroundColor = '#f5f5f5';
+                controlDiv.style.borderRadius = '5px';
+                controlDiv.innerHTML = '<small style="color: #666;">💡 表の行をドラッグして並び替えられます。</small>';
+                monthGroup.appendChild(controlDiv);
+                
                 // 表を作成
                 const table = document.createElement('table');
                 table.style.width = '100%';
                 table.style.fontSize = '12px';
+                table.className = 'draggable-table';
+                table.dataset.month = monthData.month;
                 
                 // ヘッダー行（日付と曜日）
-                let headerRow = '<tr><th>名前</th>';
+                const headerRow = document.createElement('tr');
+                headerRow.style.backgroundColor = '#f9f9f9';
+                const th1 = document.createElement('th');
+                th1.textContent = '名前';
+                headerRow.appendChild(th1);
                 monthData.dates.forEach(d => {
-                    headerRow += `<th>${d.day}日<br>(${d.weekday})</th>`;
+                    const th = document.createElement('th');
+                    th.innerHTML = `${d.day}日<br>(${d.weekday})`;
+                    headerRow.appendChild(th);
                 });
-                headerRow += '</tr>';
-                table.innerHTML = headerRow;
+                table.appendChild(headerRow);
                 
-                // 各スタッフの行
-                monthData.staff_list.forEach(staff => {
-                    let row = `<tr><td style="text-align: left;">${staff.type === '社員' ? '👔' : '👤'} ${staff.name}</td>`;
-                    staff.shifts.forEach(shifts => {
-                        const display = shifts.join('<br>');
-                        row += `<td>${display || '-'}</td>`;
+                // 各スタッフの行をドラッグ可能に
+                monthData.staff_list.forEach((staff, index) => {
+                    const row = document.createElement('tr');
+                    row.draggable = true;
+                    row.dataset.staffIndex = index;
+                    row.dataset.staffName = staff.name;
+                    row.style.cursor = 'grab';
+                    row.style.borderBottom = '1px solid #ddd';
+                    
+                    // ドラッグ中のスタイル
+                    row.addEventListener('dragstart', (e) => {
+                        row.style.opacity = '0.5';
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('draggedRow', row.dataset.staffIndex);
                     });
-                    row += '</tr>';
-                    table.innerHTML += row;
+                    
+                    row.addEventListener('dragend', (e) => {
+                        row.style.opacity = '1';
+                        document.querySelectorAll('tr[draggable=true]').forEach(r => r.style.backgroundColor = '');
+                    });
+                    
+                    row.addEventListener('dragover', (e) => {
+                        e.preventDefault();
+                        row.style.backgroundColor = '#e8f4f8';
+                    });
+                    
+                    row.addEventListener('dragleave', (e) => {
+                        row.style.backgroundColor = '';
+                    });
+                    
+                    row.addEventListener('drop', (e) => {
+                        e.preventDefault();
+                        const draggedIndex = e.dataTransfer.getData('draggedRow');
+                        const targetIndex = row.dataset.staffIndex;
+                        if (draggedIndex !== targetIndex) {
+                            swapTableRows(table, parseInt(draggedIndex), parseInt(targetIndex));
+                            saveStaffOrder(monthData.month, table);
+                        }
+                        row.style.backgroundColor = '';
+                    });
+                    
+                    const td1 = document.createElement('td');
+                    td1.style.textAlign = 'left';
+                    td1.innerHTML = `${staff.type === '社員' ? '👔' : '👤'} ${staff.name}`;
+                    row.appendChild(td1);
+                    
+                    staff.shifts.forEach(shifts => {
+                        const td = document.createElement('td');
+                        const display = shifts.join('<br>');
+                        td.textContent = display || '-';
+                        td.style.textAlign = 'center';
+                        row.appendChild(td);
+                    });
+                    
+                    table.appendChild(row);
                 });
                 
                 monthGroup.appendChild(table);
+                
+                // 月ごとのスタッフ順序を初期化
+                if (!staffOrder[monthData.month]) {
+                    saveStaffOrder(monthData.month, table);
+                }
                 
                 // 必要人数チェック（各日付ごと）
                 const checkDiv = document.createElement('div');
@@ -783,9 +852,73 @@
                 container.appendChild(monthGroup);
             });
         }
+        
+        function swapTableRows(table, index1, index2) {
+            const rows = Array.from(table.querySelectorAll('tr[draggable=true]'));
+            if (rows[index1] && rows[index2]) {
+                const temp = rows[index1].cloneNode(true);
+                rows[index1].replaceWith(rows[index2].cloneNode(true));
+                rows[index2].replaceWith(temp);
+                // 新しい行にドラッグイベントを再度設定
+                Array.from(table.querySelectorAll('tr[draggable=true]')).forEach((row, idx) => {
+                    row.dataset.staffIndex = idx;
+                    row.addEventListener('dragstart', handleDragStart);
+                    row.addEventListener('dragend', handleDragEnd);
+                    row.addEventListener('dragover', handleDragOver);
+                    row.addEventListener('dragleave', handleDragLeave);
+                    row.addEventListener('drop', handleDrop);
+                });
+            }
+        }
+        
+        function handleDragStart(e) {
+            e.target.style.opacity = '0.5';
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('draggedRow', this.dataset.staffIndex);
+        }
+        
+        function handleDragEnd(e) {
+            e.target.style.opacity = '1';
+            document.querySelectorAll('tr[draggable=true]').forEach(r => r.style.backgroundColor = '');
+        }
+        
+        function handleDragOver(e) {
+            e.preventDefault();
+            this.style.backgroundColor = '#e8f4f8';
+        }
+        
+        function handleDragLeave(e) {
+            this.style.backgroundColor = '';
+        }
+        
+        function handleDrop(e) {
+            e.preventDefault();
+            const draggedIndex = e.dataTransfer.getData('draggedRow');
+            const targetIndex = this.dataset.staffIndex;
+            if (draggedIndex !== targetIndex) {
+                const table = this.closest('table');
+                swapTableRows(table, parseInt(draggedIndex), parseInt(targetIndex));
+                saveStaffOrder(table.dataset.month, table);
+            }
+            this.style.backgroundColor = '';
+        }
+        
+        function saveStaffOrder(month, table) {
+            const order = [];
+            table.querySelectorAll('tr[draggable=true]').forEach(row => {
+                order.push(row.dataset.staffName);
+            });
+            staffOrder[month] = order;
+        }
+        
+        function getStaffOrder(month) {
+            return staffOrder[month] || null;
+        }
 
         function exportCSV() {
-            window.location.href = '/api/export/csv';
+            // スタッフ順序をサーバーに送信
+            const orderData = JSON.stringify(staffOrder);
+            window.location.href = `/api/export/csv?order=${encodeURIComponent(orderData)}`;
         }
 
         // 月切り替え
