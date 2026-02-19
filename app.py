@@ -3,7 +3,8 @@
 スマホ対応
 """
 
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for
+from flask_session import Session
 import json
 import os
 from datetime import datetime, timedelta
@@ -19,6 +20,12 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'shift-tool-secret-key-2026'
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
+Session(app)
+
+# 管理者パスワード（環境変数またはデフォルト値）
+ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'admin123')
 
 # データファイルのパス
 DATA_FILE = 'shift_data.json'
