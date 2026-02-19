@@ -10,9 +10,12 @@ from datetime import datetime, timedelta
 import calendar
 import csv
 from io import StringIO, BytesIO
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from weasyprint import HTML, CSS
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'shift-tool-secret-key-2026'
@@ -518,10 +521,24 @@ def export_csv():
     dates = sorted(set(list(data['shifts'].keys())))
     
     if not dates:
-        # 空のPDFを返す
-        html_string = '<html><body><h1>シフトデータがありません</h1></body></html>'
         pdf_buffer = BytesIO()
-        HTML(string=html_string).write_pdf(pdf_buffer)
+        doc = SimpleDocTemplate(
+            pdf_buffer,
+            pagesize=landscape(A4),
+            leftMargin=20,
+            rightMargin=20,
+            topMargin=20,
+            bottomMargin=20
+        )
+        pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
+        styles = getSampleStyleSheet()
+        empty_style = ParagraphStyle(
+            "Empty",
+            parent=styles["Normal"],
+            fontName="HeiseiKakuGo-W5",
+            fontSize=12
+        )
+        doc.build([Paragraph("シフトデータがありません", empty_style)])
         pdf_buffer.seek(0)
     else:
         # 月別にグループ化
@@ -533,54 +550,56 @@ def export_csv():
                 monthly_data[month_key] = []
             monthly_data[month_key].append(date_str)
         
-        # HTMLコンテンツを生成
-        html_content = '''
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <style>
-                body {
-                    font-family: "游ゴシック", "Yu Gothic", sans-serif;
-                    margin: 20px;
-                }
-                h2 {
-                    margin-top: 30px;
-                    page-break-after: avoid;
-                }
-                table {
-                    width: 100%;
-                    border-collapse: collapse;
-                    margin-bottom: 30px;
-                    page-break-inside: avoid;
-                }
-                th {
-                    background-color: #4472C4;
-                    color: white;
-                    padding: 8px;
-                    text-align: center;
-                    border: 1px solid #ccc;
-                    font-weight: bold;
-                    font-size: 12px;
-                }
-                td {
-                    border: 1px solid #ccc;
-                    padding: 8px;
-                    text-align: center;
-                    font-size: 12px;
-                }
-                td:first-child {
-                    text-align: left;
-                    font-weight: bold;
-                }
-            </style>
-        </head>
-        <body>
-        '''
+        pdf_buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            pdf_buffer,
+            pagesize=landscape(A4),
+            leftMargin=20,
+            rightMargin=20,
+            topMargin=20,
+            bottomMargin=20
+        )
+        pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
+        styles = getSampleStyleSheet()
+        base_style = ParagraphStyle(
+            "Base",
+            parent=styles["Normal"],
+            fontName="HeiseiKakuGo-W5",
+            fontSize=8,
+            leading=10
+        )
+        header_style = ParagraphStyle(
+            "Header",
+            parent=base_style,
+            textColor=colors.white,
+            alignment=1
+        )
+        name_style = ParagraphStyle(
+            "Name",
+            parent=base_style,
+            alignment=0
+        )
+        center_style = ParagraphStyle(
+            "Center",
+            parent=base_style,
+            alignment=1
+        )
+        title_style = ParagraphStyle(
+            "Title",
+            parent=base_style,
+            fontSize=12,
+            leading=14
+        )
+        story = []
+        weekday_names = ['月', '火', '水', '木', '金', '土', '日']
         
         # 月ごとにテーブルを生成
-        for month_key, month_dates in sorted(monthly_data.items()):
+        month_items = list(sorted(monthly_data.items()))
+        for idx, (month_key, month_dates) in enumerate(month_items):
             first_date = datetime.strptime(month_dates[0], '%Y-%m-%d')
             month_label = f"{first_date.year}年{first_date.month}月"
+            story.append(Paragraph(month_label, title_style))
+            story.append(Spacer(1, 8))
             
             # スタッフリストを取得
             staff_set = set(data['staff'].keys())
@@ -590,46 +609,49 @@ def export_csv():
             
             staff_list = sorted(staff_set)
             
-            html_content += f'<h2>{month_label}</h2>\n'
-            html_content += '<table>\n'
-            
-            # ヘッダー行
-            weekday_names = ['月', '火', '水', '木', '金', '土', '日']
-            html_content += '<tr><th>名前</th>'
+            header_row = [Paragraph("名前", header_style)]
             for date_str in month_dates:
                 date_obj = datetime.strptime(date_str, '%Y-%m-%d')
                 weekday_jp = weekday_names[date_obj.weekday()]
-                html_content += f'<th>{date_obj.day}日<br/>({weekday_jp})</th>'
-            html_content += '</tr>\n'
+                header_row.append(Paragraph(f"{date_obj.day}日<br/>({weekday_jp})", header_style))
             
-            # データ行
+            table_data = [header_row]
             for staff_name in staff_list:
-                html_content += '<tr>'
-                html_content += f'<td>{staff_name}</td>'
-                
+                row = [Paragraph(staff_name, name_style)]
                 for date_str in month_dates:
                     time_slots = []
                     if date_str in optimized_shifts and staff_name in optimized_shifts[date_str]:
                         time_slots = optimized_shifts[date_str][staff_name]
-                    
-                    if time_slots:
-                        slot_html = '<br/>'.join(time_slots)
-                        html_content += f'<td>{slot_html}</td>'
-                    else:
-                        html_content += '<td>-</td>'
-                
-                html_content += '</tr>\n'
+                    cell_text = "<br/>".join(time_slots) if time_slots else "-"
+                    row.append(Paragraph(cell_text, center_style))
+                table_data.append(row)
             
-            html_content += '</table>\n'
+            available_width = landscape(A4)[0] - doc.leftMargin - doc.rightMargin
+            first_col_width = 70
+            if len(month_dates) > 0:
+                other_width = max(35, (available_width - first_col_width) / len(month_dates))
+            else:
+                other_width = 50
+            col_widths = [first_col_width] + [other_width] * len(month_dates)
+            
+            table = Table(table_data, colWidths=col_widths, repeatRows=1)
+            table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4472C4")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (1, 1), (-1, -1), "CENTER"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3)
+            ]))
+            story.append(table)
+            
+            if idx < len(month_items) - 1:
+                story.append(PageBreak())
         
-        html_content += '''
-        </body>
-        </html>
-        '''
-        
-        # HTMLをPDFに変換
-        pdf_buffer = BytesIO()
-        HTML(string=html_content).write_pdf(pdf_buffer)
+        doc.build(story)
         pdf_buffer.seek(0)
     
     return send_file(
