@@ -429,7 +429,12 @@
                 <select id="staffType" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px;">
                     <option value="アルバイト">アルバイト</option>
                     <option value="社員">社員</option>
+                    <option value="その他">その他（手入力）</option>
                 </select>
+            </div>
+            <div class="form-group" id="staffTypeOtherGroup" style="display: none;">
+                <label>種別（その他）</label>
+                <input type="text" id="staffTypeOther" placeholder="例：パート">
             </div>
             <button type="button" class="btn btn-primary" id="addStaffBtn" onclick="console.log('Button clicked!'); addStaff();">追加</button>
         </div>
@@ -490,7 +495,7 @@
                     <button class="btn btn-primary" onclick="addTimeSlot()">➕ 時間帯を追加</button>
                 </div>
                 <p style="font-size: 11px; color: #999; margin-top: 5px;">
-                    ※ 形式: 「開始時-終了時」（例：10-15, 17-23）
+                    ※ 形式: 「開始-終了」（例：10-15, 17:30-23:00, 17:30-29:00）
                 </p>
             </div>
         </div>
@@ -505,11 +510,7 @@
             <div class="settings-table">
                 <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
                     <thead>
-                        <tr style="background: #f5f5f5;">
-                            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">時間帯</th>
-                            <th style="padding: 10px; text-align: center; border: 1px solid #ddd;">社員</th>
-                            <th style="padding: 10px; text-align: center; border: 1px solid #ddd;">アルバイト</th>
-                        </tr>
+                        <tr id="weekdaySettingsHead" style="background: #f5f5f5;"></tr>
                     </thead>
                     <tbody id="weekdaySettings">
                         <!-- JavaScriptで動的に生成 -->
@@ -521,11 +522,7 @@
             <div class="settings-table">
                 <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
                     <thead>
-                        <tr style="background: #f5f5f5;">
-                            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">時間帯</th>
-                            <th style="padding: 10px; text-align: center; border: 1px solid #ddd;">社員</th>
-                            <th style="padding: 10px; text-align: center; border: 1px solid #ddd;">アルバイト</th>
-                        </tr>
+                        <tr id="weekendSettingsHead" style="background: #f5f5f5;"></tr>
                     </thead>
                     <tbody id="weekendSettings">
                         <!-- JavaScriptで動的に生成 -->
@@ -572,6 +569,14 @@
             <h3>シフト希望入力</h3>
             <p id="modalInfo"></p>
             <div class="checkbox-group" id="timeSlotCheckboxes"></div>
+            <div class="form-group" id="customTimeSlotGroup" style="display: none;">
+                <label>時間帯を自由入力</label>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="customTimeSlotInput" placeholder="例：12-18" style="flex: 1;">
+                    <button class="btn btn-primary" type="button" style="width: auto; padding: 8px 12px;" onclick="addCustomTimeSlot()">追加</button>
+                </div>
+                <p style="font-size: 11px; color: #666; margin-top: 5px;">※管理者設定外の時間も追加できます</p>
+            </div>
             <div class="modal-buttons">
                 <button class="btn btn-primary" onclick="saveShift()">保存</button>
                 <button class="btn" onclick="closeModal()">キャンセル</button>
@@ -718,11 +723,36 @@
             }
         }
 
+        function toggleStaffTypeOther() {
+            const staffTypeSelect = document.getElementById('staffType');
+            const otherGroup = document.getElementById('staffTypeOtherGroup');
+            if (!staffTypeSelect || !otherGroup) return;
+
+            const isOther = staffTypeSelect.value === 'その他';
+            otherGroup.style.display = isOther ? 'block' : 'none';
+
+            if (!isOther) {
+                const otherInput = document.getElementById('staffTypeOther');
+                if (otherInput) otherInput.value = '';
+            }
+        }
+
         async function addStaff() {
             try {
                 console.log('addStaff function called');
                 const name = document.getElementById('staffName').value.trim();
-                const type = document.getElementById('staffType').value;
+                const typeSelect = document.getElementById('staffType');
+                let type = typeSelect ? typeSelect.value : 'アルバイト';
+
+                if (type === 'その他') {
+                    const otherInput = document.getElementById('staffTypeOther');
+                    const customType = otherInput ? otherInput.value.trim() : '';
+                    if (!customType) {
+                        alert('種別を入力してください');
+                        return;
+                    }
+                    type = customType;
+                }
                 console.log('Name:', name, 'Type:', type);
                 
                 if (!name) {
@@ -741,6 +771,10 @@
                 
                 if (response.ok) {
                     document.getElementById('staffName').value = '';
+                    if (typeSelect) {
+                        typeSelect.value = 'アルバイト';
+                    }
+                    toggleStaffTypeOther();
                     loadStaff();
                 } else {
                     alert(result.error);
@@ -824,6 +858,10 @@
             // チェックボックスを生成
             const container = document.getElementById('timeSlotCheckboxes');
             container.innerHTML = '';
+            const customGroup = document.getElementById('customTimeSlotGroup');
+            if (customGroup) {
+                customGroup.style.display = 'none';
+            }
             
             // 現在の選択を取得
             fetch(`/api/shifts/${currentYear}/${currentMonth}`)
@@ -858,20 +896,20 @@
                     } else {
                         // アルバイトの場合は時間帯を表示
                         timeSlots.forEach(slot => {
-                            const label = document.createElement('label');
-                            const checkbox = document.createElement('input');
-                            checkbox.type = 'checkbox';
-                            checkbox.value = slot;
-                            checkbox.checked = currentSlots.includes(slot);
-                            
-                            label.appendChild(checkbox);
-                            label.appendChild(document.createTextNode(` ${slot}`));
-                            
-                            container.appendChild(label);
+                            addCustomSlotCheckbox(slot, currentSlots.includes(slot));
                         });
+
+                        // 既存の自由入力時間帯を表示
+                        currentSlots
+                            .filter(slot => !timeSlots.includes(slot))
+                            .forEach(slot => addCustomSlotCheckbox(slot, true));
+
+                        if (customGroup) {
+                            customGroup.style.display = 'block';
+                        }
                     
                     // 変更オプションを追加（アルバイトのみ）
-                    if (staffType === 'アルバイト' && currentSlots.length > 0) {
+                    if (staffType !== '社員' && currentSlots.length > 0) {
                         const changeDiv = document.createElement('div');
                         changeDiv.className = 'change-option';
                         changeDiv.innerHTML = '<h4>⚙️ 時間帯を変更</h4>';
@@ -904,6 +942,41 @@
                     
                     document.getElementById('shiftModal').classList.add('active');
                 });
+        }
+
+        function addCustomSlotCheckbox(slot, isChecked) {
+            const container = document.getElementById('timeSlotCheckboxes');
+            if (!container) return;
+
+            const existing = Array.from(
+                container.querySelectorAll('input[type="checkbox"]')
+            ).some(cb => cb.value === slot);
+            if (existing) return;
+
+            const label = document.createElement('label');
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = slot;
+            checkbox.checked = !!isChecked;
+
+            label.appendChild(checkbox);
+            label.appendChild(document.createTextNode(` ${slot}`));
+
+            container.appendChild(label);
+        }
+
+        function addCustomTimeSlot() {
+            const input = document.getElementById('customTimeSlotInput');
+            if (!input) return;
+
+            const slot = input.value.trim();
+            if (!slot) {
+                alert('時間帯を入力してください');
+                return;
+            }
+
+            addCustomSlotCheckbox(slot, true);
+            input.value = '';
         }
         
         function changeTimeSlot(fromSlot, toSlot) {
@@ -1109,12 +1182,21 @@
                     dayCheck.innerHTML = `<strong>${d.day}日(${d.weekday})</strong>`;
                     
                     checkData.forEach(slot => {
-                        const staffOk = slot.staff_ok ? '✓' : '⚠';
-                        const parttimeOk = slot.parttime_ok ? '✓' : '⚠';
+                        const requiredByType = slot.required_by_type || {};
+                        const assignedByType = slot.assigned_by_type || {};
+                        const okByType = slot.ok_by_type || {};
+                        const types = sortStaffTypes(Object.keys(requiredByType));
+                        const parts = types.map(type => {
+                            const ok = okByType[type] ? '✓' : '⚠';
+                            const assigned = assignedByType[type] ?? 0;
+                            const required = requiredByType[type] ?? 0;
+                            return `${type}${ok}(${assigned}/${required})`;
+                        });
+
                         const item = document.createElement('div');
                         item.style.fontSize = '11px';
                         item.style.marginLeft = '10px';
-                        item.innerHTML = `${slot.time_slot}: 社員${staffOk}(${slot.assigned_staff}/${slot.required_staff}) バイト${parttimeOk}(${slot.assigned_parttime}/${slot.required_parttime})`;
+                        item.innerHTML = `${slot.time_slot}: ${parts.join(' ')}`;
                         dayCheck.appendChild(item);
                     });
                     
@@ -1340,6 +1422,8 @@
             }
             if (staffTypeSelect) {
                 console.log('staffType select found');
+                staffTypeSelect.addEventListener('change', toggleStaffTypeOther);
+                toggleStaffTypeOther();
             } else {
                 console.error('staffType select NOT found');
             }
@@ -1380,6 +1464,7 @@
         // ========== シフト詳細設定関連 ==========
         
         let currentTimeSlots = [];
+        let currentStaffTypes = [];
 
         async function loadShiftSettings() {
             try {
@@ -1388,6 +1473,7 @@
                 
                 if (data.success) {
                     currentTimeSlots = data.time_slots || ['10-15', '17-23', '18-23', '19-23'];
+                    currentStaffTypes = data.staff_types || ['社員', 'アルバイト'];
                     displayTimeSlots(currentTimeSlots);
                     displayShiftSettings(data.settings, currentTimeSlots);
                 }
@@ -1395,6 +1481,38 @@
                 console.error('設定読み込みエラー:', error);
                 alert('設定の読み込みに失敗しました');
             }
+        }
+
+        function sortStaffTypes(types) {
+            const priority = {'社員': 0, 'アルバイト': 1};
+            return [...types].sort((a, b) => {
+                const pa = priority.hasOwnProperty(a) ? priority[a] : 2;
+                const pb = priority.hasOwnProperty(b) ? priority[b] : 2;
+                if (pa !== pb) return pa - pb;
+                return a.localeCompare(b, 'ja');
+            });
+        }
+
+        function renderSettingsHeader(headId, staffTypes) {
+            const headRow = document.getElementById(headId);
+            if (!headRow) return;
+
+            headRow.innerHTML = '';
+            const timeHeader = document.createElement('th');
+            timeHeader.textContent = '時間帯';
+            timeHeader.style.padding = '10px';
+            timeHeader.style.textAlign = 'left';
+            timeHeader.style.border = '1px solid #ddd';
+            headRow.appendChild(timeHeader);
+
+            staffTypes.forEach(type => {
+                const th = document.createElement('th');
+                th.textContent = type;
+                th.style.padding = '10px';
+                th.style.textAlign = 'center';
+                th.style.border = '1px solid #ddd';
+                headRow.appendChild(th);
+            });
         }
 
         function displayTimeSlots(timeSlots) {
@@ -1421,9 +1539,26 @@
                 return;
             }
             
-            // 形式チェック（例：10-15）
-            if (!/^\d{1,2}-\d{1,2}$/.test(newSlot)) {
-                alert('形式が正しくありません。「開始時-終了時」の形式で入力してください（例：10-15）');
+            // 形式チェック（例：10-15, 17:30-23:00, 17:30-29:00）
+            const timeSlotPattern = /^(\d{1,2})(?::([0-5]\d))?-(\d{1,2})(?::([0-5]\d))?$/;
+            const match = newSlot.match(timeSlotPattern);
+            if (!match) {
+                alert('形式が正しくありません。「開始-終了」の形式で入力してください（例：10-15, 17:30-23:00, 17:30-29:00）');
+                return;
+            }
+
+            const startHour = parseInt(match[1], 10);
+            const startMin = match[2] ? parseInt(match[2], 10) : 0;
+            const endHour = parseInt(match[3], 10);
+            const endMin = match[4] ? parseInt(match[4], 10) : 0;
+
+            if (startHour > 29 || endHour > 29) {
+                alert('時間は0-29の範囲で入力してください（例：29:00）');
+                return;
+            }
+
+            if (startMin % 30 !== 0 || endMin % 30 !== 0) {
+                alert('分は00または30で入力してください（例：17:30）');
                 return;
             }
             
@@ -1492,26 +1627,32 @@
             if (!timeSlots) {
                 timeSlots = ['10-15', '17-23', '18-23', '19-23'];
             }
+
+            const staffTypes = sortStaffTypes(currentStaffTypes.length ? currentStaffTypes : ['社員', 'アルバイト']);
+            renderSettingsHeader('weekdaySettingsHead', staffTypes);
+            renderSettingsHeader('weekendSettingsHead', staffTypes);
             
             // 平日設定を表示
             const weekdayTbody = document.getElementById('weekdaySettings');
             weekdayTbody.innerHTML = '';
             timeSlots.forEach(slot => {
-                const config = settings.weekday[slot] || {staff: 1, parttime: 0};
+                const config = settings.weekday[slot] || {};
                 const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">${slot}</td>
-                    <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">
-                        <input type="number" min="0" max="10" value="${config.staff}" 
-                               data-day="weekday" data-slot="${slot}" data-type="staff"
-                               style="width: 60px; padding: 5px; text-align: center; border: 1px solid #ddd; border-radius: 4px;">
-                    </td>
-                    <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">
-                        <input type="number" min="0" max="10" value="${config.parttime}" 
-                               data-day="weekday" data-slot="${slot}" data-type="parttime"
-                               style="width: 60px; padding: 5px; text-align: center; border: 1px solid #ddd; border-radius: 4px;">
-                    </td>
-                `;
+                const cells = [];
+                cells.push(`<td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">${slot}</td>`);
+
+                staffTypes.forEach(type => {
+                    const value = Number.isFinite(config[type]) ? config[type] : (config[type] || 0);
+                    cells.push(`
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">
+                            <input type="number" min="0" max="10" value="${value}" 
+                                   data-day="weekday" data-slot="${slot}" data-type="${type}"
+                                   style="width: 60px; padding: 5px; text-align: center; border: 1px solid #ddd; border-radius: 4px;">
+                        </td>
+                    `);
+                });
+
+                row.innerHTML = cells.join('');
                 weekdayTbody.appendChild(row);
             });
             
@@ -1519,21 +1660,23 @@
             const weekendTbody = document.getElementById('weekendSettings');
             weekendTbody.innerHTML = '';
             timeSlots.forEach(slot => {
-                const config = settings.weekend[slot] || {staff: 1, parttime: 0};
+                const config = settings.weekend[slot] || {};
                 const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">${slot}</td>
-                    <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">
-                        <input type="number" min="0" max="10" value="${config.staff}" 
-                               data-day="weekend" data-slot="${slot}" data-type="staff"
-                               style="width: 60px; padding: 5px; text-align: center; border: 1px solid #ddd; border-radius: 4px;">
-                    </td>
-                    <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">
-                        <input type="number" min="0" max="10" value="${config.parttime}" 
-                               data-day="weekend" data-slot="${slot}" data-type="parttime"
-                               style="width: 60px; padding: 5px; text-align: center; border: 1px solid #ddd; border-radius: 4px;">
-                    </td>
-                `;
+                const cells = [];
+                cells.push(`<td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">${slot}</td>`);
+
+                staffTypes.forEach(type => {
+                    const value = Number.isFinite(config[type]) ? config[type] : (config[type] || 0);
+                    cells.push(`
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">
+                            <input type="number" min="0" max="10" value="${value}" 
+                                   data-day="weekend" data-slot="${slot}" data-type="${type}"
+                                   style="width: 60px; padding: 5px; text-align: center; border: 1px solid #ddd; border-radius: 4px;">
+                        </td>
+                    `);
+                });
+
+                row.innerHTML = cells.join('');
                 weekendTbody.appendChild(row);
             });
         }
@@ -1548,29 +1691,28 @@
                 
                 // 現在の時間帯リストを使用
                 const timeSlots = currentTimeSlots;
+                const staffTypes = sortStaffTypes(currentStaffTypes.length ? currentStaffTypes : ['社員', 'アルバイト']);
                 
                 // 平日設定
                 timeSlots.forEach(slot => {
-                    const staffInput = document.querySelector(`input[data-day="weekday"][data-slot="${slot}"][data-type="staff"]`);
-                    const parttimeInput = document.querySelector(`input[data-day="weekday"][data-slot="${slot}"][data-type="parttime"]`);
-                    if (staffInput && parttimeInput) {
-                        settings.weekday[slot] = {
-                            staff: parseInt(staffInput.value) || 0,
-                            parttime: parseInt(parttimeInput.value) || 0
-                        };
-                    }
+                    settings.weekday[slot] = {};
+                    staffTypes.forEach(type => {
+                        const input = document.querySelector(
+                            `input[data-day="weekday"][data-slot="${slot}"][data-type="${type}"]`
+                        );
+                        settings.weekday[slot][type] = parseInt(input?.value, 10) || 0;
+                    });
                 });
                 
                 // 週末設定
                 timeSlots.forEach(slot => {
-                    const staffInput = document.querySelector(`input[data-day="weekend"][data-slot="${slot}"][data-type="staff"]`);
-                    const parttimeInput = document.querySelector(`input[data-day="weekend"][data-slot="${slot}"][data-type="parttime"]`);
-                    if (staffInput && parttimeInput) {
-                        settings.weekend[slot] = {
-                            staff: parseInt(staffInput.value) || 0,
-                            parttime: parseInt(parttimeInput.value) || 0
-                        };
-                    }
+                    settings.weekend[slot] = {};
+                    staffTypes.forEach(type => {
+                        const input = document.querySelector(
+                            `input[data-day="weekend"][data-slot="${slot}"][data-type="${type}"]`
+                        );
+                        settings.weekend[slot][type] = parseInt(input?.value, 10) || 0;
+                    });
                 });
                 
                 const response = await fetch('/api/shift-settings', {
@@ -1603,10 +1745,16 @@
                 weekend: {}
             };
             
+            const staffTypes = sortStaffTypes(currentStaffTypes.length ? currentStaffTypes : ['社員', 'アルバイト']);
             currentTimeSlots.forEach(slot => {
-                // デフォルト値（必要に応じて調整）
-                defaultSettings.weekday[slot] = {staff: 1, parttime: 1};
-                defaultSettings.weekend[slot] = {staff: 1, parttime: 1};
+                defaultSettings.weekday[slot] = {};
+                defaultSettings.weekend[slot] = {};
+                staffTypes.forEach(type => {
+                    const isDefault = type === '社員' || type === 'アルバイト';
+                    const value = isDefault ? 1 : 0;
+                    defaultSettings.weekday[slot][type] = value;
+                    defaultSettings.weekend[slot][type] = value;
+                });
             });
             
             displayShiftSettings(defaultSettings, currentTimeSlots);

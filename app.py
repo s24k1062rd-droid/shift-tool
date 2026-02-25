@@ -83,18 +83,81 @@ def get_default_shift_settings():
     """デフォルトのシフト設定を返す"""
     return {
         'weekday': {  # 日〜木
-            '10-15': {'staff': 1, 'parttime': 1},
-            '17-23': {'staff': 1, 'parttime': 0},
-            '18-23': {'staff': 1, 'parttime': 1},
-            '19-23': {'staff': 1, 'parttime': 2}
+            '10-15': {'社員': 1, 'アルバイト': 1},
+            '17-23': {'社員': 1, 'アルバイト': 0},
+            '18-23': {'社員': 1, 'アルバイト': 1},
+            '19-23': {'社員': 1, 'アルバイト': 2}
         },
         'weekend': {  # 金土祝前日
-            '10-15': {'staff': 1, 'parttime': 1},
-            '17-23': {'staff': 1, 'parttime': 1},
-            '18-23': {'staff': 1, 'parttime': 2},
-            '19-23': {'staff': 1, 'parttime': 3}
+            '10-15': {'社員': 1, 'アルバイト': 1},
+            '17-23': {'社員': 1, 'アルバイト': 1},
+            '18-23': {'社員': 1, 'アルバイト': 2},
+            '19-23': {'社員': 1, 'アルバイト': 3}
         }
     }
+
+def sort_staff_types(types):
+    """スタッフ種別を表示順に並べ替える"""
+    priority = {'社員': 0, 'アルバイト': 1}
+    return sorted(types, key=lambda t: (priority.get(t, 2), t))
+
+def get_staff_types(data, settings=None):
+    """スタッフ種別リストを取得（登録スタッフ優先）"""
+    types = set()
+    for info in data.get('staff', {}).values():
+        staff_type = str(info.get('type', '')).strip()
+        if staff_type:
+            types.add(staff_type)
+
+    if not types and settings:
+        for day_type in ['weekday', 'weekend']:
+            for slot_settings in settings.get(day_type, {}).values():
+                if isinstance(slot_settings, dict):
+                    for key in slot_settings.keys():
+                        if key == 'staff':
+                            types.add('社員')
+                        elif key == 'parttime':
+                            types.add('アルバイト')
+                        else:
+                            types.add(key)
+
+    if not types:
+        types.update(['社員', 'アルバイト'])
+
+    return sort_staff_types(types)
+
+def normalize_shift_settings(settings, time_slots, staff_types):
+    """シフト設定を種別ごとの形式に正規化"""
+    normalized = {'weekday': {}, 'weekend': {}}
+
+    for day_type in ['weekday', 'weekend']:
+        day_settings = settings.get(day_type, {}) if isinstance(settings, dict) else {}
+        for slot in time_slots:
+            raw_settings = day_settings.get(slot, {}) if isinstance(day_settings, dict) else {}
+            slot_settings = {}
+
+            if isinstance(raw_settings, dict):
+                if 'staff' in raw_settings:
+                    slot_settings['社員'] = raw_settings.get('staff', 0)
+                if 'parttime' in raw_settings:
+                    slot_settings['アルバイト'] = raw_settings.get('parttime', 0)
+
+                for key, value in raw_settings.items():
+                    if key in ['staff', 'parttime']:
+                        continue
+                    slot_settings[key] = value
+
+            fallback_parttime = slot_settings.get('アルバイト', 0)
+            for staff_type in staff_types:
+                if staff_type not in slot_settings:
+                    if staff_type != '社員' and fallback_parttime:
+                        slot_settings[staff_type] = fallback_parttime
+                    else:
+                        slot_settings[staff_type] = 0
+
+            normalized[day_type][slot] = slot_settings
+
+    return normalized
 
 def load_data(store_code=None):
     """データを読み込み"""
@@ -117,12 +180,19 @@ def load_data(store_code=None):
             # time_slotsがない場合はデフォルトを設定
             if 'time_slots' not in data:
                 data['time_slots'] = get_default_time_slots()
+            # 種別ごとの設定に正規化
+            staff_types = get_staff_types(data, data.get('shift_settings'))
+            data['shift_settings'] = normalize_shift_settings(
+                data.get('shift_settings', {}),
+                data.get('time_slots', get_default_time_slots()),
+                staff_types
+            )
             # admin_passwordがない場合はデフォルトを設定
             if 'admin_password' not in data:
                 data['admin_password'] = ADMIN_PASSWORD
             return data
     return {
-        'staff': {},  # スタッフ情報の辞書 {name: {type: '社員' or 'アルバイト'}}
+        'staff': {},  # スタッフ情報の辞書 {name: {type: '社員' or 'アルバイト' or 任意}}
         'shifts': {},  # {date: {staff: [time_slots]}}
         'requirements': {},  # {date: {time_slot: count}}
         'shift_settings': get_default_shift_settings(),  # シフト詳細設定
@@ -221,13 +291,13 @@ def get_staff():
 def add_staff():
     """スタッフを追加（管理者のみ）"""
     staff_name = request.json.get('name', '').strip()
-    staff_type = request.json.get('type', 'アルバイト')  # 社員 or アルバイト
+    staff_type = request.json.get('type', 'アルバイト').strip()
     
     if not staff_name:
         return jsonify({'error': 'スタッフ名を入力してください'}), 400
     
-    if staff_type not in ['社員', 'アルバイト']:
-        return jsonify({'error': '種別は「社員」または「アルバイト」を指定してください'}), 400
+    if not staff_type:
+        return jsonify({'error': '種別を入力してください'}), 400
     
     data = load_data()
     
@@ -407,9 +477,14 @@ def update_requirement():
 def get_shift_settings():
     """シフト詳細設定を取得（管理者のみ）"""
     data = load_data()
-    settings = data.get('shift_settings', get_default_shift_settings())
     time_slots = data.get('time_slots', get_default_time_slots())
-    return jsonify({'success': True, 'settings': settings, 'time_slots': time_slots})
+    staff_types = get_staff_types(data, data.get('shift_settings'))
+    settings = normalize_shift_settings(
+        data.get('shift_settings', get_default_shift_settings()),
+        time_slots,
+        staff_types
+    )
+    return jsonify({'success': True, 'settings': settings, 'time_slots': time_slots, 'staff_types': staff_types})
 
 @app.route('/api/shift-settings', methods=['POST'])
 @require_admin
@@ -421,7 +496,9 @@ def update_shift_settings():
         return jsonify({'error': '設定データが不足しています'}), 400
     
     data = load_data()
-    data['shift_settings'] = settings
+    time_slots = data.get('time_slots', get_default_time_slots())
+    staff_types = get_staff_types(data, settings)
+    data['shift_settings'] = normalize_shift_settings(settings, time_slots, staff_types)
     save_data(data)
     
     return jsonify({'success': True})
@@ -447,18 +524,26 @@ def update_time_slots():
     
     # 古い時間帯データとの整合性を保つため、shift_settingsも更新
     old_slots = data.get('time_slots', [])
-    new_settings = data.get('shift_settings', get_default_shift_settings())
-    
-    # 新しい時間帯に対してデフォルト設定を追加
-    for slot in time_slots:
-        if slot not in new_settings.get('weekday', {}):
-            new_settings['weekday'][slot] = {'staff': 1, 'parttime': 1}
-        if slot not in new_settings.get('weekend', {}):
-            new_settings['weekend'][slot] = {'staff': 1, 'parttime': 1}
+    staff_types = get_staff_types(data, data.get('shift_settings'))
+    new_settings = normalize_shift_settings(
+        data.get('shift_settings', get_default_shift_settings()),
+        time_slots,
+        staff_types
+    )
+
+    # 追加された時間帯にデフォルト値を入れる
+    new_slots = [slot for slot in time_slots if slot not in old_slots]
+    if new_slots:
+        for day_type in ['weekday', 'weekend']:
+            for slot in new_slots:
+                slot_settings = new_settings.get(day_type, {}).get(slot, {})
+                for staff_type in staff_types:
+                    if staff_type in ['社員', 'アルバイト'] and slot_settings.get(staff_type, 0) == 0:
+                        slot_settings[staff_type] = 1
     
     # 削除された時間帯の設定を削除
     for day_type in ['weekday', 'weekend']:
-        slots_to_remove = [s for s in new_settings[day_type].keys() if s not in time_slots]
+        slots_to_remove = [s for s in new_settings.get(day_type, {}).keys() if s not in time_slots]
         for slot in slots_to_remove:
             del new_settings[day_type][slot]
     
@@ -574,8 +659,11 @@ def generate_shift():
     return jsonify(result)
 
 def optimize_shifts(data):
-    """時間帯包含を考慮してシフトを最適化（社員は1日1人のみ、アルバイトのみ調整・削除・時間変更）"""
+    """時間帯包含を考慮してシフトを最適化（社員は1日1人のみ、社員以外を調整・削除・時間変更）"""
     optimized = {}
+    settings = data.get('shift_settings', get_default_shift_settings())
+    staff_types = get_staff_types(data, settings)
+    time_slots = data.get('time_slots', SHIFT_TIME_SLOTS)
     
     for date_str, shifts in data['shifts'].items():
         optimized[date_str] = {}
@@ -595,25 +683,37 @@ def optimize_shifts(data):
             selected_staff, selected_slots = staff_employees[0]
             optimized[date_str][selected_staff] = selected_slots[:]
         
-        # アルバイトのシフトを収集
+        # 社員以外のシフトを収集
         parttime_shifts = {}
         for staff_name, slots in shifts.items():
             staff_info = data['staff'].get(staff_name, {})
             staff_type = staff_info.get('type', 'アルバイト')
-            if staff_type == 'アルバイト':
+            if staff_type != '社員':
                 parttime_shifts[staff_name] = slots[:]
         
         # 各時間帯の必要人数と現在の配置を確認
         time_slot_needs = {}
-        for time_slot in SHIFT_TIME_SLOTS:
-            req_parttime = get_required_staff(date_str, time_slot)
+        for time_slot in time_slots:
+            required_by_type = {}
+            assigned_by_type = {}
+            for staff_type in staff_types:
+                required_by_type[staff_type] = get_required_staff(
+                    date_str,
+                    time_slot,
+                    staff_type,
+                    settings
+                )
+                assigned_by_type[staff_type] = []
+
             time_slot_needs[time_slot] = {
-                'required': req_parttime,
-                'assigned': []
+                'required_by_type': required_by_type,
+                'assigned_by_type': assigned_by_type
             }
         
         # 各アルバイトの時間帯を分析し、最適化
         for staff_name, slots in parttime_shifts.items():
+            staff_info = data['staff'].get(staff_name, {})
+            staff_type = staff_info.get('type', 'アルバイト')
             for slot in slots:
                 # この時間帯がカバーする時間帯をチェック（アルバイトは単一時間帯のみ）
                 covered = get_covered_slots([slot])
@@ -625,7 +725,10 @@ def optimize_shifts(data):
                 # まず元の時間帯で使用可能かチェック
                 all_covered_ok = True
                 for covered_slot in covered:
-                    if len(time_slot_needs[covered_slot]['assigned']) >= time_slot_needs[covered_slot]['required']:
+                    slot_needs = time_slot_needs.get(covered_slot, {})
+                    assigned = slot_needs.get('assigned_by_type', {}).get(staff_type, [])
+                    required = slot_needs.get('required_by_type', {}).get(staff_type, 0)
+                    if len(assigned) >= required:
                         all_covered_ok = False
                         break
                 
@@ -640,7 +743,10 @@ def optimize_shifts(data):
                             alt_covered = get_covered_slots(alternative_slot)
                             alt_ok = True
                             for covered_slot in alt_covered:
-                                if len(time_slot_needs[covered_slot]['assigned']) >= time_slot_needs[covered_slot]['required']:
+                                slot_needs = time_slot_needs.get(covered_slot, {})
+                                assigned = slot_needs.get('assigned_by_type', {}).get(staff_type, [])
+                                required = slot_needs.get('required_by_type', {}).get(staff_type, 0)
+                                if len(assigned) >= required:
                                     alt_ok = False
                                     break
                             
@@ -659,7 +765,7 @@ def optimize_shifts(data):
                     # 配置を記録（アルバイトは単一時間帯のみ）
                     best_covered = get_covered_slots([best_slot])
                     for covered_slot in best_covered:
-                        time_slot_needs[covered_slot]['assigned'].append({
+                        time_slot_needs[covered_slot]['assigned_by_type'][staff_type].append({
                             'staff': staff_name,
                             'slot': best_slot
                         })
@@ -670,8 +776,8 @@ def optimize_shifts(data):
     
     return optimized
 
-def get_required_staff(date_str, time_slot, settings=None):
-    """指定日時の必要アルバイト数を計算（社員は通し勤務で固定、調整対象外）"""
+def get_required_staff(date_str, time_slot, staff_type, settings=None):
+    """指定日時の必要人数を計算（種別ごと）"""
     date_obj = datetime.strptime(date_str, '%Y-%m-%d')
     weekday = date_obj.weekday()  # 0=月, 6=日
     
@@ -686,10 +792,7 @@ def get_required_staff(date_str, time_slot, settings=None):
     # 曜日に応じた設定を選択
     day_type = 'weekend' if is_weekend else 'weekday'
     time_settings = settings.get(day_type, {}).get(time_slot, {})
-    
-    required_parttime = time_settings.get('parttime', 0)
-    
-    return required_parttime
+    return time_settings.get(staff_type, 0)
 
 @app.route('/api/check_requirements', methods=['POST'])
 def check_requirements():
@@ -709,31 +812,40 @@ def check_requirements():
     
     # 各時間帯の充足状況をチェック
     results = []
+    time_slots = data.get('time_slots', SHIFT_TIME_SLOTS)
+    settings = data.get('shift_settings', get_default_shift_settings())
+    staff_types = get_staff_types(data, settings)
     
-    for time_slot in SHIFT_TIME_SLOTS:
-        req_parttime = get_required_staff(date, time_slot)
-        
+    for time_slot in time_slots:
+        required_by_type = {}
+        assigned_by_type = {staff_type: 0 for staff_type in staff_types}
+
+        for staff_type in staff_types:
+            required_by_type[staff_type] = get_required_staff(
+                date,
+                time_slot,
+                staff_type,
+                settings
+            )
+
         # 実際に入っている人数を計算（時間帯包含を考慮）
-        assigned_staff = 0
-        assigned_parttime = 0
-        
         for staff_name, slots in shifts.items():
-            # スタッフの時間帯が現在の時間帯をカバーしているか
-            # 複数の時間帯を持つ場合（社員の通し勤務）を考慮
             covered = get_covered_slots(slots)
             if time_slot in covered:
                 staff_info = data['staff'].get(staff_name, {})
-                if staff_info.get('type') == '社員':
-                    assigned_staff += 1
-                else:
-                    assigned_parttime += 1
-        
+                staff_type = staff_info.get('type', 'アルバイト')
+                if staff_type in assigned_by_type:
+                    assigned_by_type[staff_type] += 1
+
+        ok_by_type = {}
+        for staff_type in staff_types:
+            ok_by_type[staff_type] = assigned_by_type[staff_type] >= required_by_type[staff_type]
+
         results.append({
             'time_slot': time_slot,
-            'required_parttime': req_parttime,
-            'assigned_staff': assigned_staff,
-            'assigned_parttime': assigned_parttime,
-            'parttime_ok': assigned_parttime >= req_parttime
+            'required_by_type': required_by_type,
+            'assigned_by_type': assigned_by_type,
+            'ok_by_type': ok_by_type
         })
     
     return jsonify(results)
