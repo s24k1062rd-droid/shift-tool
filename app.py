@@ -8,6 +8,7 @@ from flask_session import Session
 import json
 import os
 from datetime import datetime, timedelta
+import threading
 import calendar
 import csv
 from io import StringIO, BytesIO
@@ -29,6 +30,9 @@ ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'admin123')
 
 # データファイルのパス
 DATA_FILE = 'shift_data.json'
+
+# スタッフ追加のスレッドセーフなロック
+staff_lock = threading.Lock()
 
 def get_store_data_file(store_code):
     """店舗ごとのデータファイルパスを取得"""
@@ -146,10 +150,16 @@ def load_data(store_code=None):
     if store_code is None:
         store_code = session.get('store_code', 'default')
     
+    print(f"[DEBUG load_data] セッション内の store_code: {session.get('store_code')}, 使用する store_code: {store_code}")
+    
     data_file = get_store_data_file(store_code)
+    print(f"[DEBUG load_data] データファイルパス: {data_file}")
+    
     if os.path.exists(data_file):
         with open(data_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
+            print(f"[DEBUG load_data] ファイルから読み込み。スタッフ数: {len(data.get('staff', {}))}")
+            print(f"[DEBUG load_data] 登録済みスタッフ: {list(data.get('staff', {}).keys())}")
             # 旧データとの互換性のため、staffがリストの場合は辞書に変換
             if isinstance(data.get('staff'), list):
                 staff_dict = {}
@@ -274,6 +284,9 @@ def add_staff():
     """スタッフを追加（管理者のみ）"""
     staff_name = request.json.get('name', '').strip()
     staff_type = request.json.get('type', 'アルバイト').strip()
+    priority = request.json.get('priority')  # 優先度を取得
+    
+    print(f"[DEBUG] スタッフ追加リクエスト - 名前: {repr(staff_name)}, 種別: {repr(staff_type)}, 優先度: {priority}")
     
     if not staff_name:
         return jsonify({'error': 'スタッフ名を入力してください'}), 400
@@ -281,13 +294,27 @@ def add_staff():
     if not staff_type:
         return jsonify({'error': '種別を入力してください'}), 400
     
-    data = load_data()
-    
-    if staff_name in data['staff']:
-        return jsonify({'error': 'このスタッフは既に登録されています'}), 400
-    
-    data['staff'][staff_name] = {'type': staff_type}
-    save_data(data)
+    # スレッドセーフなロック処理
+    with staff_lock:
+        print(f"[DEBUG] ロック取得 - スタッフ '{staff_name}' の追加処理開始")
+        
+        data = load_data()
+        print(f"[DEBUG] 現在登録されているスタッフ: {list(data['staff'].keys())}")
+        print(f"[DEBUG] スタッフ '{staff_name}' は登録済みか？ {staff_name in data['staff']}")
+        
+        if staff_name in data['staff']:
+            print(f"[DEBUG] スタッフ '{staff_name}' は既に登録されています")
+            return jsonify({'error': 'このスタッフは既に登録されています'}), 400
+        
+        # 優先度情報を含める
+        staff_info = {'type': staff_type}
+        if priority is not None:
+            staff_info['priority'] = priority
+        
+        data['staff'][staff_name] = staff_info
+        save_data(data)
+        print(f"[DEBUG] スタッフ '{staff_name}' を追加しました")
+        print(f"[DEBUG] ロック解放 - スタッフ '{staff_name}' の追加処理完了")
     
     return jsonify({'success': True, 'staff': data['staff']})
 

@@ -441,7 +441,7 @@
                 <input type="number" id="staffPriority" placeholder="例：1（小さいほど優先）" min="1" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px;">
                 <p style="font-size: 11px; color: #666; margin-top: 5px;">※数値が小さいほど優先順位が高くなります。空欄の場合は最低優先度として扱われます。</p>
             </div>
-            <button type="button" class="btn btn-primary" id="addStaffBtn" onclick="console.log('Button clicked!'); addStaff();">追加</button>
+            <button type="button" class="btn btn-primary" id="addStaffBtn">追加</button>
         </div>
 
         <div class="card">
@@ -632,6 +632,67 @@
                     console.error('Auth check error:', error);
                     window.location.href = '/login';
                 });
+            
+            // ここから、スタッフ管理の初期化コード
+            console.log('DOM loaded, initializing...');
+            loadStaff();
+            
+            // ボタンの動作確認
+            const staffNameInput = document.getElementById('staffName');
+            const staffTypeSelect = document.getElementById('staffType');
+            const addStaffBtn = document.getElementById('addStaffBtn');
+            
+            if (staffNameInput) {
+                console.log('staffName input found');
+            } else {
+                console.error('staffName input NOT found');
+            }
+            if (staffTypeSelect) {
+                console.log('staffType select found');
+                staffTypeSelect.addEventListener('change', toggleStaffTypeOther);
+                toggleStaffTypeOther();
+            } else {
+                console.error('staffType select NOT found');
+            }
+            if (addStaffBtn) {
+                console.log('addStaffBtn button found');
+                
+                // 既存のリスナーを確認して削除（重複登録防止）
+                const newBtn = addStaffBtn.cloneNode(true);
+                addStaffBtn.parentNode.replaceChild(newBtn, addStaffBtn);
+                const freshBtn = document.getElementById('addStaffBtn');
+                
+                // イベントリスナーを登録（クローンしたため重複はない）
+                freshBtn.addEventListener('click', function(e) {
+                    console.log('Button clicked via event listener');
+                    e.preventDefault();
+                    addStaff();
+                });
+            } else {
+                console.error('addStaffBtn button NOT found');
+            }
+            
+            // Enterキーでも追加できるようにする
+            if (staffNameInput) {
+                staffNameInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        console.log('Enter key pressed');
+                        e.preventDefault();
+                        addStaff();
+                    }
+                });
+            }
+            
+            // 時間帯入力フィールドのEnterキー対応
+            const newTimeSlotInput = document.getElementById('newTimeSlot');
+            if (newTimeSlotInput) {
+                newTimeSlotInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addTimeSlot();
+                    }
+                });
+            }
         }
 
         // ロール別UI適用
@@ -744,7 +805,18 @@
             }
         }
 
+        let addStaffCallCount = 0;  // デバッグ用：addStaff呼び出し回数
+        let isAddingStaff = false;  // リクエスト中フラグ
+
         async function addStaff() {
+            // 既にリクエスト中なら処理をスキップ
+            if (isAddingStaff) {
+                console.warn('⚠️ Already processing a staff addition request. Skipping duplicate request.');
+                return;
+            }
+
+            addStaffCallCount++;
+            console.log(`[Call #${addStaffCallCount}] addStaff function called`);
             try {
                 console.log('addStaff function called');
                 const name = document.getElementById('staffName').value.trim();
@@ -776,6 +848,15 @@
                     body.priority = priority;
                 }
 
+                // リクエスト中フラグをセット
+                isAddingStaff = true;
+                const addStaffBtn = document.getElementById('addStaffBtn');
+                if (addStaffBtn) {
+                    addStaffBtn.disabled = true;
+                    addStaffBtn.style.opacity = '0.6';
+                }
+
+                console.log(`[Call #${addStaffCallCount}] Sending POST request:`, body);
                 const response = await fetch('/api/staff', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -783,9 +864,10 @@
                 });
 
                 const result = await response.json();
-                console.log('Response:', result);
+                console.log(`[Call #${addStaffCallCount}] Response:`, result);
                 
                 if (response.ok) {
+                    console.log(`[Call #${addStaffCallCount}] ✅ SUCCESS`);
                     document.getElementById('staffName').value = '';
                     if (typeSelect) {
                         typeSelect.value = 'アルバイト';
@@ -794,13 +876,27 @@
                         priorityInput.value = '';
                     }
                     toggleStaffTypeOther();
-                    loadStaff();
+                    
+                    // ファイルシステムの同期を待つため、少し遅延させる
+                    setTimeout(() => {
+                        console.log(`[Call #${addStaffCallCount}] Calling loadStaff after 500ms delay`);
+                        loadStaff();
+                    }, 500);
                 } else {
+                    console.log(`[Call #${addStaffCallCount}] ❌ ERROR: ${result.error}`);
                     alert(result.error);
                 }
             } catch (error) {
-                console.error('Error in addStaff:', error);
+                console.error(`[Call #${addStaffCallCount}] Exception in addStaff:`, error);
                 alert('エラーが発生しました: ' + error.message);
+            } finally {
+                // リクエスト中フラグを解除
+                isAddingStaff = false;
+                const addStaffBtn = document.getElementById('addStaffBtn');
+                if (addStaffBtn) {
+                    addStaffBtn.disabled = false;
+                    addStaffBtn.style.opacity = '1';
+                }
             }
         }
 
@@ -1424,61 +1520,8 @@
             });
         }
 
-        // 初期化
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('DOM loaded, initializing...');
-            loadStaff();
-            
-            // ボタンの動作確認
-            const staffNameInput = document.getElementById('staffName');
-            const staffTypeSelect = document.getElementById('staffType');
-            const addStaffBtn = document.getElementById('addStaffBtn');
-            
-            if (staffNameInput) {
-                console.log('staffName input found');
-            } else {
-                console.error('staffName input NOT found');
-            }
-            if (staffTypeSelect) {
-                console.log('staffType select found');
-                staffTypeSelect.addEventListener('change', toggleStaffTypeOther);
-                toggleStaffTypeOther();
-            } else {
-                console.error('staffType select NOT found');
-            }
-            if (addStaffBtn) {
-                console.log('addStaffBtn button found');
-                // イベントリスナーでも登録
-                addStaffBtn.addEventListener('click', function(e) {
-                    console.log('Button clicked via event listener');
-                    e.preventDefault();
-                    addStaff();
-                });
-            } else {
-                console.error('addStaffBtn button NOT found');
-            }
-            
-            // Enterキーでも追加できるようにする
-            if (staffNameInput) {
-                staffNameInput.addEventListener('keypress', function(e) {
-                    if (e.key === 'Enter') {
-                        console.log('Enter key pressed');
-                        addStaff();
-                    }
-                });
-            }
-            
-            // 時間帯入力フィールドのEnterキー対応
-            const newTimeSlotInput = document.getElementById('newTimeSlot');
-            if (newTimeSlotInput) {
-                newTimeSlotInput.addEventListener('keypress', function(e) {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addTimeSlot();
-                    }
-                });
-            }
-        });
+        // 初期化は initializeUI() に統一済み
+        
 
         // ========== シフト詳細設定関連 ==========
         
