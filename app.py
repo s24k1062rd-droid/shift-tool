@@ -35,45 +35,27 @@ def get_store_data_file(store_code):
     os.makedirs('shift_data', exist_ok=True)
     return os.path.join('shift_data', f'{store_code}_data.json')
 
-# 固定のシフト時間帯
-SHIFT_TIME_SLOTS = [
-    '10-15',
-    '17-23',
-    '18-23',
-    '19-23'
-]
-
-# 時間帯の変更可能先マップ
-SHIFT_CHANGE_MAP = {
-    '17-23': ['18-23', '19-23'],
-    '18-23': ['19-23']
-}
-
-# 時間帯の包含関係（この時間帯はどの時間帯に含まれるか）
-SHIFT_COVERAGE = {
-    '17-23': ['17-23', '18-23', '19-23'],  # 17-23は18-23, 19-23も含む
-    '18-23': ['18-23', '19-23'],  # 18-23は19-23も含む
-    '19-23': ['19-23'],
-    '10-15': ['10-15']
-}
+def build_shift_change_map(time_slots):
+    """時間帯の並び順に基づいて変更可能先を作成"""
+    change_map = {}
+    for index, slot in enumerate(time_slots):
+        change_map[slot] = time_slots[index + 1:]
+    return change_map
 
 def get_covered_slots(time_slots):
-    """指定された時間帯（単一または複数）がカバーする時間帯リストを返す
-    10-15と17-23の両方がある場合は、すべての時間帯をカバーする
-    """
+    """指定された時間帯（単一または複数）をそのまま返す"""
     if isinstance(time_slots, str):
-        time_slots = [time_slots]
-    
-    # 10-15と17-23の両方がある場合は、すべての時間帯をカバー
-    if '10-15' in time_slots and '17-23' in time_slots:
-        return ['10-15', '17-23', '18-23', '19-23']
-    
-    # 単一または通常の組み合わせの場合
-    covered = set()
+        return [time_slots]
+
+    # 入力順を保持して重複を除外
+    unique_slots = []
+    seen = set()
     for slot in time_slots:
-        covered.update(SHIFT_COVERAGE.get(slot, [slot]))
-    
-    return sorted(list(covered))
+        if slot not in seen:
+            seen.add(slot)
+            unique_slots.append(slot)
+
+    return unique_slots
 
 def get_default_time_slots():
     """デフォルトの時間帯を返す"""
@@ -350,8 +332,8 @@ def get_shifts(year, month):
     return jsonify({
         'shifts': month_shifts,
         'staff': data['staff'],
-        'time_slots': data.get('time_slots', SHIFT_TIME_SLOTS),
-        'change_map': SHIFT_CHANGE_MAP,
+        'time_slots': data.get('time_slots', get_default_time_slots()),
+        'change_map': build_shift_change_map(data.get('time_slots', get_default_time_slots())),
         'days_in_month': days_in_month
     })
 
@@ -436,7 +418,7 @@ def get_requirements(year, month):
     
     return jsonify({
         'requirements': month_requirements,
-        'time_slots': SHIFT_TIME_SLOTS,
+        'time_slots': data.get('time_slots', get_default_time_slots()),
         'days_in_month': days_in_month
     })
 
@@ -663,7 +645,8 @@ def optimize_shifts(data):
     optimized = {}
     settings = data.get('shift_settings', get_default_shift_settings())
     staff_types = get_staff_types(data, settings)
-    time_slots = data.get('time_slots', SHIFT_TIME_SLOTS)
+    time_slots = data.get('time_slots', get_default_time_slots())
+    change_map = build_shift_change_map(time_slots)
     
     for date_str, shifts in data['shifts'].items():
         optimized[date_str] = {}
@@ -738,9 +721,9 @@ def optimize_shifts(data):
                     best_slot = slot
                 else:
                     # 時間変更を試みる
-                    if slot in SHIFT_CHANGE_MAP:
-                        for alternative_slot in SHIFT_CHANGE_MAP[slot]:
-                            alt_covered = get_covered_slots(alternative_slot)
+                    if slot in change_map:
+                        for alternative_slot in change_map[slot]:
+                            alt_covered = get_covered_slots([alternative_slot])
                             alt_ok = True
                             for covered_slot in alt_covered:
                                 slot_needs = time_slot_needs.get(covered_slot, {})
@@ -812,7 +795,7 @@ def check_requirements():
     
     # 各時間帯の充足状況をチェック
     results = []
-    time_slots = data.get('time_slots', SHIFT_TIME_SLOTS)
+    time_slots = data.get('time_slots', get_default_time_slots())
     settings = data.get('shift_settings', get_default_shift_settings())
     staff_types = get_staff_types(data, settings)
     
