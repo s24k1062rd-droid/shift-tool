@@ -436,6 +436,11 @@
                 <label>種別（その他）</label>
                 <input type="text" id="staffTypeOther" placeholder="例：パート">
             </div>
+            <div class="form-group">
+                <label>優先順位（任意）</label>
+                <input type="number" id="staffPriority" placeholder="例：1（小さいほど優先）" min="1" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px;">
+                <p style="font-size: 11px; color: #666; margin-top: 5px;">※数値が小さいほど優先順位が高くなります。空欄の場合は最低優先度として扱われます。</p>
+            </div>
             <button type="button" class="btn btn-primary" id="addStaffBtn" onclick="console.log('Button clicked!'); addStaff();">追加</button>
         </div>
 
@@ -485,6 +490,7 @@
 
             <div style="margin-bottom: 20px;">
                 <h3 style="margin-bottom: 10px; font-size: 16px;">現在の時間帯</h3>
+                <p style="font-size: 11px; color: #999; margin-bottom: 8px;">※ドラッグで並び替えできます</p>
                 <div id="timeSlotsList" style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px;">
                     <!-- JavaScriptで動的に生成 -->
                 </div>
@@ -711,8 +717,9 @@
                     const li = document.createElement('li');
                     li.className = 'staff-item';
                     const badge = info.type === '社員' ? '👔' : '👤';
+                    const priorityText = info.priority !== undefined && info.priority !== null ? ` [優先度: ${info.priority}]` : '';
                     li.innerHTML = `
-                        <span>${badge} ${name} (${info.type})</span>
+                        <span>${badge} ${name} (${info.type})${priorityText}</span>
                         <button class="btn btn-danger" style="width: auto; padding: 8px 15px;" onclick="deleteStaff('${name}')">削除</button>
                     `;
                     list.appendChild(li);
@@ -753,17 +760,26 @@
                     }
                     type = customType;
                 }
-                console.log('Name:', name, 'Type:', type);
+                
+                const priorityInput = document.getElementById('staffPriority');
+                const priority = priorityInput && priorityInput.value ? parseInt(priorityInput.value, 10) : null;
+                
+                console.log('Name:', name, 'Type:', type, 'Priority:', priority);
                 
                 if (!name) {
                     alert('スタッフ名を入力してください');
                     return;
                 }
 
+                const body = {name, type};
+                if (priority !== null) {
+                    body.priority = priority;
+                }
+
                 const response = await fetch('/api/staff', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({name, type})
+                    body: JSON.stringify(body)
                 });
 
                 const result = await response.json();
@@ -773,6 +789,9 @@
                     document.getElementById('staffName').value = '';
                     if (typeSelect) {
                         typeSelect.value = 'アルバイト';
+                    }
+                    if (priorityInput) {
+                        priorityInput.value = '';
                     }
                     toggleStaffTypeOther();
                     loadStaff();
@@ -1513,6 +1532,26 @@
                 th.style.border = '1px solid #ddd';
                 headRow.appendChild(th);
             });
+            
+            // 合計人数ヘッダー
+            const totalHeader = document.createElement('th');
+            totalHeader.textContent = '合計';
+            totalHeader.style.padding = '10px';
+            totalHeader.style.textAlign = 'center';
+            totalHeader.style.border = '1px solid #ddd';
+            totalHeader.style.backgroundColor = '#f0f0f0';
+            totalHeader.style.fontWeight = 'bold';
+            headRow.appendChild(totalHeader);
+            
+            // 次の最低数ヘッダー
+            const minHeader = document.createElement('th');
+            minHeader.textContent = '次：最低';
+            minHeader.style.padding = '10px';
+            minHeader.style.textAlign = 'center';
+            minHeader.style.border = '1px solid #ddd';
+            minHeader.style.fontSize = '0.9em';
+            minHeader.style.color = '#666';
+            headRow.appendChild(minHeader);
         }
 
         function displayTimeSlots(timeSlots) {
@@ -1522,12 +1561,71 @@
             timeSlots.forEach(slot => {
                 const tag = document.createElement('div');
                 tag.className = 'time-slot-tag';
+                tag.draggable = true;
+                tag.dataset.slot = slot;
                 tag.innerHTML = `
+                    <span style="cursor: grab;">drag</span>
                     <span>${slot}</span>
                     <button class="remove-btn" onclick="removeTimeSlot('${slot}')" title="削除">×</button>
                 `;
+                tag.addEventListener('dragstart', (event) => {
+                    event.dataTransfer.setData('text/plain', slot);
+                    tag.style.opacity = '0.6';
+                });
+                tag.addEventListener('dragend', () => {
+                    tag.style.opacity = '1';
+                });
+                tag.addEventListener('dragover', (event) => {
+                    event.preventDefault();
+                    tag.style.outline = '2px dashed #2196F3';
+                });
+                tag.addEventListener('dragleave', () => {
+                    tag.style.outline = '';
+                });
+                tag.addEventListener('drop', (event) => {
+                    event.preventDefault();
+                    tag.style.outline = '';
+                    const fromSlot = event.dataTransfer.getData('text/plain');
+                    if (fromSlot && fromSlot !== slot) {
+                        moveTimeSlot(fromSlot, slot);
+                    }
+                });
                 container.appendChild(tag);
             });
+        }
+
+        function moveTimeSlot(fromSlot, toSlot) {
+            const fromIndex = currentTimeSlots.indexOf(fromSlot);
+            const toIndex = currentTimeSlots.indexOf(toSlot);
+            if (fromIndex === -1 || toIndex === -1) return;
+
+            const updated = [...currentTimeSlots];
+            const [moved] = updated.splice(fromIndex, 1);
+            updated.splice(toIndex, 0, moved);
+            currentTimeSlots = updated;
+            displayTimeSlots(currentTimeSlots);
+            saveTimeSlotOrder();
+        }
+
+        async function saveTimeSlotOrder() {
+            try {
+                const response = await fetch('/api/time-slots', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({time_slots: currentTimeSlots})
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    loadShiftSettings();
+                } else {
+                    alert('❌ 並び替えに失敗しました: ' + (data.error || ''));
+                }
+            } catch (error) {
+                console.error('時間帯並び替えエラー:', error);
+                alert('❌ 並び替え中にエラーが発生しました');
+            }
         }
 
         async function addTimeSlot() {
@@ -1632,52 +1730,193 @@
             renderSettingsHeader('weekdaySettingsHead', staffTypes);
             renderSettingsHeader('weekendSettingsHead', staffTypes);
             
-            // 平日設定を表示
+            // 平日設定を表示（時間帯リストの順序に従う）
             const weekdayTbody = document.getElementById('weekdaySettings');
             weekdayTbody.innerHTML = '';
-            timeSlots.forEach(slot => {
+            timeSlots.forEach((slot, slotIndex) => {
                 const config = settings.weekday[slot] || {};
                 const row = document.createElement('tr');
                 const cells = [];
+                
+                // 時間帯
                 cells.push(`<td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">${slot}</td>`);
 
+                // スタッフ種別ごとの入力
                 staffTypes.forEach(type => {
                     const value = Number.isFinite(config[type]) ? config[type] : (config[type] || 0);
                     cells.push(`
                         <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">
                             <input type="number" min="0" max="10" value="${value}" 
                                    data-day="weekday" data-slot="${slot}" data-type="${type}"
-                                   style="width: 60px; padding: 5px; text-align: center; border: 1px solid #ddd; border-radius: 4px;">
+                                   style="width: 60px; padding: 5px; text-align: center; border: 1px solid #ddd; border-radius: 4px;"
+                                   onchange="updateSettingsTotals()">
                         </td>
                     `);
                 });
+                
+                // 合計人数を計算・表示（リスト内のこの時間帯までの累積値）
+                const totalValue = staffTypes.reduce((sum, type) => {
+                    return sum + (Number.isFinite(config[type]) ? config[type] : (config[type] || 0));
+                }, 0);
+                
+                // 前の時間帯（リスト上で1つ前）との比較
+                const minRequired = slotIndex > 0 ? getSlotTotalByIndex('weekday', timeSlots, slotIndex - 1) : 0;
+                const isViolation = slotIndex > 0 && totalValue < minRequired;
+                const warningIcon = isViolation ? ' ⚠️' : '';
+                const bgColor = isViolation ? '#ffcccc' : '#f0f0f0';
+                
+                cells.push(`
+                    <td style="padding: 10px; border: 1px solid #ddd; text-align: center; background-color: ${bgColor}; font-weight: bold;">
+                        <span class="slot-total" data-day="weekday" data-slot="${slot}">${totalValue}</span>人${warningIcon}
+                    </td>
+                `);
+                
+                // 次の時間帯への最低制限表示
+                if (slotIndex < timeSlots.length - 1) {
+                    cells.push(`
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center; font-size: 0.9em; color: #666;">
+                            次: ≧${totalValue}
+                        </td>
+                    `);
+                } else {
+                    cells.push(`<td style="padding: 10px; border: 1px solid #ddd;"></td>`);
+                }
 
                 row.innerHTML = cells.join('');
                 weekdayTbody.appendChild(row);
             });
             
-            // 週末設定を表示
+            // 週末設定を表示（時間帯リストの順序に従う）
             const weekendTbody = document.getElementById('weekendSettings');
             weekendTbody.innerHTML = '';
-            timeSlots.forEach(slot => {
+            timeSlots.forEach((slot, slotIndex) => {
                 const config = settings.weekend[slot] || {};
                 const row = document.createElement('tr');
                 const cells = [];
+                
+                // 時間帯
                 cells.push(`<td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">${slot}</td>`);
 
+                // スタッフ種別ごとの入力
                 staffTypes.forEach(type => {
                     const value = Number.isFinite(config[type]) ? config[type] : (config[type] || 0);
                     cells.push(`
                         <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">
                             <input type="number" min="0" max="10" value="${value}" 
                                    data-day="weekend" data-slot="${slot}" data-type="${type}"
-                                   style="width: 60px; padding: 5px; text-align: center; border: 1px solid #ddd; border-radius: 4px;">
+                                   style="width: 60px; padding: 5px; text-align: center; border: 1px solid #ddd; border-radius: 4px;"
+                                   onchange="updateSettingsTotals()">
                         </td>
                     `);
                 });
+                
+                // 合計人数を計算・表示
+                const totalValue = staffTypes.reduce((sum, type) => {
+                    return sum + (Number.isFinite(config[type]) ? config[type] : (config[type] || 0));
+                }, 0);
+                
+                // 前の時間帯との比較
+                const minRequired = slotIndex > 0 ? getSlotTotalByIndex('weekend', timeSlots, slotIndex - 1) : 0;
+                const isViolation = slotIndex > 0 && totalValue < minRequired;
+                const warningIcon = isViolation ? ' ⚠️' : '';
+                const bgColor = isViolation ? '#ffcccc' : '#f0f0f0';
+                
+                cells.push(`
+                    <td style="padding: 10px; border: 1px solid #ddd; text-align: center; background-color: ${bgColor}; font-weight: bold;">
+                        <span class="slot-total" data-day="weekend" data-slot="${slot}">${totalValue}</span>人${warningIcon}
+                    </td>
+                `);
+                
+                // 次の時間帯への最低制限表示
+                if (slotIndex < timeSlots.length - 1) {
+                    cells.push(`
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center; font-size: 0.9em; color: #666;">
+                            次: ≧${totalValue}
+                        </td>
+                    `);
+                } else {
+                    cells.push(`<td style="padding: 10px; border: 1px solid #ddd;"></td>`);
+                }
 
                 row.innerHTML = cells.join('');
                 weekendTbody.appendChild(row);
+            });
+        }
+
+        function getPrevSlotTotal(dayType, timeSlots, slotIndex) {
+            if (slotIndex === 0) return 0;
+            const prevSlot = timeSlots[slotIndex - 1];
+            const staffTypes = sortStaffTypes(currentStaffTypes.length ? currentStaffTypes : ['社員', 'アルバイト']);
+            // 現在のDOMから前の時間帯の合計を計算
+            let total = 0;
+            staffTypes.forEach(type => {
+                const input = document.querySelector(
+                    `input[data-day="${dayType}"][data-slot="${prevSlot}"][data-type="${type}"]`
+                );
+                total += parseInt(input?.value, 10) || 0;
+            });
+            return total;
+        }
+
+        function getSlotTotalByIndex(dayType, timeSlots, slotIndex) {
+            // 指定されたインデックスの時間帯の合計人数を取得
+            if (slotIndex < 0 || slotIndex >= timeSlots.length) return 0;
+            const slot = timeSlots[slotIndex];
+            const staffTypes = sortStaffTypes(currentStaffTypes.length ? currentStaffTypes : ['社員', 'アルバイト']);
+            let total = 0;
+            staffTypes.forEach(type => {
+                const input = document.querySelector(
+                    `input[data-day="${dayType}"][data-slot="${slot}"][data-type="${type}"]`
+                );
+                total += parseInt(input?.value, 10) || 0;
+            });
+            return total;
+        }
+
+        function updateSettingsTotals() {
+            // 合計人数の再計算と警告表示（時間帯の順序に基づく）
+            const timeSlots = currentTimeSlots;
+            const staffTypes = sortStaffTypes(currentStaffTypes.length ? currentStaffTypes : ['社員', 'アルバイト']);
+            
+            ['weekday', 'weekend'].forEach(dayType => {
+                timeSlots.forEach((slot, currentIndex) => {
+                    // 現在の時間帯の合計を計算
+                    let total = 0;
+                    staffTypes.forEach(type => {
+                        const input = document.querySelector(
+                            `input[data-day="${dayType}"][data-slot="${slot}"][data-type="${type}"]`
+                        );
+                        total += parseInt(input?.value, 10) || 0;
+                    });
+                    
+                    // 合計表示を更新
+                    const spanElement = document.querySelector(
+                        `.slot-total[data-day="${dayType}"][data-slot="${slot}"]`
+                    );
+                    if (spanElement) {
+                        spanElement.textContent = total;
+                        
+                        // 前の時間帯の合計を取得し、制約チェック
+                        let minRequired = 0;
+                        if (currentIndex > 0) {
+                            minRequired = getSlotTotalByIndex(dayType, timeSlots, currentIndex - 1);
+                        }
+                        
+                        // 親のtd要素のスタイルを更新
+                        const tdElement = spanElement.closest('td');
+                        const warningSpan = spanElement.nextElementSibling;
+                        
+                        if (currentIndex > 0 && total < minRequired) {
+                            // 制約違反：背景を赤くして警告
+                            tdElement.style.backgroundColor = '#ffcccc';
+                            if (warningSpan) warningSpan.textContent = `人 ⚠️`;
+                        } else {
+                            // OK：背景を通常色に
+                            tdElement.style.backgroundColor = '#f0f0f0';
+                            if (warningSpan) warningSpan.textContent = '人';
+                        }
+                    }
+                });
             });
         }
 
