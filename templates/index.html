@@ -989,27 +989,44 @@
                     const staffType = currentStaff[staff]?.type || 'アルバイト';
                     
                     if (staffType === '社員') {
-                        // 社員の場合は「出勤」のみ表示
-                        const label = document.createElement('label');
-                        const checkbox = document.createElement('input');
-                        checkbox.type = 'checkbox';
-                        checkbox.value = 'work';
-                        checkbox.checked = currentSlots.length > 0;
-                        checkbox.id = 'workCheckbox';
-                        
-                        label.appendChild(checkbox);
-                        label.appendChild(document.createTextNode(' 出勤'));
-                        
+                        // 社員の場合も時間帯を選択できるように改善
                         const note = document.createElement('div');
                         note.style.fontSize = '12px';
                         note.style.color = '#666';
-                        note.style.marginTop = '10px';
-                        note.textContent = '※社員は通し勤務（ランチ＋ディナー）です';
+                        note.style.marginBottom = '15px';
+                        note.style.padding = '10px';
+                        note.style.backgroundColor = '#f0f8ff';
+                        note.style.borderRadius = '4px';
+                        note.textContent = '✓ 社員：複数の時間帯を選択して出勤できます。選択した時間帯で勤務となります。';
                         
-                        container.appendChild(label);
                         container.appendChild(note);
+                        
+                        // 社員にも時間帯チェックボックスを表示
+                        timeSlots.forEach(slot => {
+                            addCustomSlotCheckbox(slot, currentSlots.includes(slot));
+                        });
+
+                        // 既存の自由入力時間帯を表示
+                        currentSlots
+                            .filter(slot => !timeSlots.includes(slot))
+                            .forEach(slot => addCustomSlotCheckbox(slot, true));
+
+                        if (customGroup) {
+                            customGroup.style.display = 'block';
+                        }
                     } else {
                         // アルバイトの場合は時間帯を表示
+                        const note = document.createElement('div');
+                        note.style.fontSize = '12px';
+                        note.style.color = '#666';
+                        note.style.marginBottom = '15px';
+                        note.style.padding = '10px';
+                        note.style.backgroundColor = '#fff8e1';
+                        note.style.borderRadius = '4px';
+                        note.textContent = '✓ アルバイト：勤務したい時間帯を選択して下さい。複数選択可能です。';
+                        
+                        container.appendChild(note);
+                        
                         timeSlots.forEach(slot => {
                             addCustomSlotCheckbox(slot, currentSlots.includes(slot));
                         });
@@ -1112,19 +1129,9 @@
             const staffType = currentStaff[modalData.staff]?.type || 'アルバイト';
             let selectedSlots;
             
-            if (staffType === '社員') {
-                // 社員の場合、出勤チェックがあれば全時間帯を設定
-                const workCheckbox = document.getElementById('workCheckbox');
-                if (workCheckbox && workCheckbox.checked) {
-                    selectedSlots = ['10-15', '17-23'];
-                } else {
-                    selectedSlots = [];
-                }
-            } else {
-                // アルバイトの場合、チェックされた時間帯を取得
-                const checkboxes = document.querySelectorAll('#timeSlotCheckboxes input[type="checkbox"]:checked');
-                selectedSlots = Array.from(checkboxes).map(cb => cb.value);
-            }
+            // 社員・アルバイト共に、チェックされた時間帯を取得
+            const checkboxes = document.querySelectorAll('#timeSlotCheckboxes input[type="checkbox"]:checked');
+            selectedSlots = Array.from(checkboxes).map(cb => cb.value);
             
             const response = await fetch('/api/shifts', {
                 method: 'POST',

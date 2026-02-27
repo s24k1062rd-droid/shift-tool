@@ -221,9 +221,14 @@ def api_login():
     password = data_request.get('password', '')
     store_code = data_request.get('store_code', '').strip()
     role = data_request.get('role', 'user')
+    staff_name = data_request.get('staff_name', '').strip()  # スタッフ名を取得
     
     if not store_code:
         return jsonify({'success': False, 'error': '店舗コードを入力してください'}), 400
+    
+    # スタッフロールの場合、スタッフ名を確認
+    if role == 'user' and not staff_name:
+        return jsonify({'success': False, 'error': 'スタッフ名を入力してください'}), 400
     
     # 店舗データを読み込み（セッション設定前なので直接指定）
     data_file = get_store_data_file(store_code)
@@ -242,6 +247,8 @@ def api_login():
     # セッションに情報を保存
     session['role'] = role
     session['store_code'] = store_code
+    if role == 'user':
+        session['staff_name'] = staff_name  # スタッフロールの場合、スタッフ名を保存
     session.permanent = True
     
     return jsonify({'success': True, 'role': role, 'store_code': store_code})
@@ -261,6 +268,37 @@ def check_auth():
         'role': session['role'],
         'store_code': session.get('store_code', 'default'),
         'success': True
+    })
+
+@app.route('/api/current-staff', methods=['GET'])
+def get_current_staff():
+    """ログイン中のスタッフ情報を取得"""
+    if 'role' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    # ユーザーロールの場合のみ、スタッフ名を返す
+    if session.get('role') != 'user':
+        return jsonify({'error': 'ユーザーロードのみアクセス可能'}), 403
+    
+    data = load_data()
+    staff_name = session.get('staff_name')
+    
+    # セッションにスタッフ名がない場合は、最初のスタッフを返す（デフォルト）
+    if not staff_name:
+        # 本来はログイン時にスタッフ名を保存するべき
+        # ここでは、'staff_name'がセッションに含まれていない場合は、
+        # ユーザーが特定のスタッフとして登録されていないということ
+        return jsonify({
+            'success': False,
+            'staff_name': None,
+            'staff_type': None
+        }), 200
+    
+    staff_info = data['staff'].get(staff_name, {})
+    return jsonify({
+        'success': True,
+        'staff_name': staff_name,
+        'staff_type': staff_info.get('type', 'アルバイト')
     })
 
 def require_admin(f):
@@ -668,7 +706,7 @@ def generate_shift():
     return jsonify(result)
 
 def optimize_shifts(data):
-    """時間帯包含を考慮してシフトを最適化（社員は1日1人のみ、社員以外を調整・削除・時間変更）"""
+    """時間帯包含を考慮してシフトを最適化（詳細設定に従って社員・アルバイトを配置）"""
     optimized = {}
     settings = data.get('shift_settings', get_default_shift_settings())
     staff_types = get_staff_types(data, settings)
@@ -677,29 +715,6 @@ def optimize_shifts(data):
     
     for date_str, shifts in data['shifts'].items():
         optimized[date_str] = {}
-        
-        # 社員のシフトを確認し、1日1人のみに制限
-        staff_employees = []
-        for staff_name, slots in shifts.items():
-            staff_info = data['staff'].get(staff_name, {})
-            staff_type = staff_info.get('type', 'アルバイト')
-            if staff_type == '社員' and slots:
-                staff_employees.append((staff_name, slots))
-        
-        # 社員が複数いる場合は、最も多くの時間帯を入れている社員を選択
-        if staff_employees:
-            # 時間帯の数でソート（降順）、同数の場合は名前順
-            staff_employees.sort(key=lambda x: (-len(x[1]), x[0]))
-            selected_staff, selected_slots = staff_employees[0]
-            optimized[date_str][selected_staff] = selected_slots[:]
-        
-        # 社員以外のシフトを収集
-        parttime_shifts = {}
-        for staff_name, slots in shifts.items():
-            staff_info = data['staff'].get(staff_name, {})
-            staff_type = staff_info.get('type', 'アルバイト')
-            if staff_type != '社員':
-                parttime_shifts[staff_name] = slots[:]
         
         # 各時間帯の必要人数と現在の配置を確認
         time_slot_needs = {}
@@ -720,65 +735,74 @@ def optimize_shifts(data):
                 'assigned_by_type': assigned_by_type
             }
         
-        # 各アルバイトの時間帯を分析し、最適化
-        for staff_name, slots in parttime_shifts.items():
+        # スタッフを種別ごとに分類（社員優先）
+        staff_by_type = {}
+        for staff_type in staff_types:
+            staff_by_type[staff_type] = []
+        
+        for staff_name, slots in shifts.items():
             staff_info = data['staff'].get(staff_name, {})
             staff_type = staff_info.get('type', 'アルバイト')
-            for slot in slots:
-                # この時間帯がカバーする時間帯をチェック（アルバイトは単一時間帯のみ）
-                covered = get_covered_slots([slot])
-                
-                # 時間変更を試みる（過剰な時間帯から不足している時間帯へ）
-                best_slot = slot
-                can_use = False
-                
-                # まず元の時間帯で使用可能かチェック
-                all_covered_ok = True
-                for covered_slot in covered:
-                    slot_needs = time_slot_needs.get(covered_slot, {})
-                    assigned = slot_needs.get('assigned_by_type', {}).get(staff_type, [])
-                    required = slot_needs.get('required_by_type', {}).get(staff_type, 0)
-                    if len(assigned) >= required:
-                        all_covered_ok = False
-                        break
-                
-                if all_covered_ok:
-                    # 元の時間帯で問題なし
-                    can_use = True
-                    best_slot = slot
-                else:
-                    # 時間変更を試みる
-                    if slot in change_map:
-                        for alternative_slot in change_map[slot]:
-                            alt_covered = get_covered_slots([alternative_slot])
-                            alt_ok = True
-                            for covered_slot in alt_covered:
-                                slot_needs = time_slot_needs.get(covered_slot, {})
-                                assigned = slot_needs.get('assigned_by_type', {}).get(staff_type, [])
-                                required = slot_needs.get('required_by_type', {}).get(staff_type, 0)
-                                if len(assigned) >= required:
-                                    alt_ok = False
-                                    break
-                            
-                            if alt_ok:
-                                # この代替時間帯が使える
-                                can_use = True
-                                best_slot = alternative_slot
-                                break
-                
-                # シフトを配置
-                if can_use:
-                    if staff_name not in optimized[date_str]:
-                        optimized[date_str][staff_name] = []
-                    optimized[date_str][staff_name].append(best_slot)
+            if slots:  # 希望時間帯がある場合のみ
+                staff_by_type[staff_type].append((staff_name, slots))
+        
+        # 社員を優先的に配置（複数の時間帯を選択可能）
+        for staff_type in ['社員'] + [t for t in staff_types if t != '社員']:
+            for staff_name, slots in staff_by_type.get(staff_type, []):
+                for slot in slots:
+                    # この時間帯がカバーする時間帯をチェック
+                    covered = get_covered_slots([slot])
                     
-                    # 配置を記録（アルバイトは単一時間帯のみ）
-                    best_covered = get_covered_slots([best_slot])
-                    for covered_slot in best_covered:
-                        time_slot_needs[covered_slot]['assigned_by_type'][staff_type].append({
-                            'staff': staff_name,
-                            'slot': best_slot
-                        })
+                    best_slot = slot
+                    can_use = False
+                    
+                    # まず元の時間帯で使用可能かチェック
+                    all_covered_ok = True
+                    for covered_slot in covered:
+                        slot_needs = time_slot_needs.get(covered_slot, {})
+                        assigned = slot_needs.get('assigned_by_type', {}).get(staff_type, [])
+                        required = slot_needs.get('required_by_type', {}).get(staff_type, 0)
+                        if len(assigned) >= required:
+                            all_covered_ok = False
+                            break
+                    
+                    if all_covered_ok:
+                        # 元の時間帯で問題なし
+                        can_use = True
+                        best_slot = slot
+                    else:
+                        # アルバイトの場合のみ時間変更を試みる（社員は固定）
+                        if staff_type != '社員' and slot in change_map:
+                            for alternative_slot in change_map[slot]:
+                                alt_covered = get_covered_slots([alternative_slot])
+                                alt_ok = True
+                                for covered_slot in alt_covered:
+                                    slot_needs = time_slot_needs.get(covered_slot, {})
+                                    assigned = slot_needs.get('assigned_by_type', {}).get(staff_type, [])
+                                    required = slot_needs.get('required_by_type', {}).get(staff_type, 0)
+                                    if len(assigned) >= required:
+                                        alt_ok = False
+                                        break
+                                
+                                if alt_ok:
+                                    # この代替時間帯が使える
+                                    can_use = True
+                                    best_slot = alternative_slot
+                                    break
+                    
+                    # シフトを配置（必要人数に達していなければ配置）
+                    if can_use:
+                        if staff_name not in optimized[date_str]:
+                            optimized[date_str][staff_name] = []
+                        optimized[date_str][staff_name].append(best_slot)
+                        
+                        # 配置を記録
+                        best_covered = get_covered_slots([best_slot])
+                        for covered_slot in best_covered:
+                            time_slot_needs[covered_slot]['assigned_by_type'][staff_type].append({
+                                'staff': staff_name,
+                                'slot': best_slot
+                            })
         
         # 最適化後にシフトが1つもない日付は削除
         if not optimized[date_str]:

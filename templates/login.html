@@ -219,6 +219,9 @@
                 <div class="info-box">
                     ✓ スタッフモードではシフト希望を提出し、生成されたシフトを確認できます
                 </div>
+                <label for="staffName">スタッフ名</label>
+                <input type="text" id="staffName" placeholder="スタッフ名を入力" autocomplete="off" list="staffList">
+                <datalist id="staffList"></datalist>
             </div>
 
             <button type="submit" class="login-btn" id="loginBtn">ログイン</button>
@@ -248,6 +251,47 @@
             }
         }
 
+        // 店舗コード入力時にスタッフリストを読み込み
+        async function loadStaffList() {
+            const storeCode = document.getElementById('storeCode').value.trim();
+            if (!storeCode) {
+                document.getElementById('staffList').innerHTML = '';
+                return;
+            }
+
+            try {
+                // 店舗別データを読み込む（スタッフ情報取得用）
+                const response = await fetch('/api/staff'); // セッションがある場合のみ使用可能
+                if (!response.ok) {
+                    // セッションがない場合は、別の方法でスタッフリストを取得
+                    // 本来はセッションが必要なので、ここではスキップ
+                    return;
+                }
+                const staffData = await response.json();
+                
+                const datalist = document.getElementById('staffList');
+                datalist.innerHTML = '';
+                Object.keys(staffData).forEach(staffName => {
+                    const option = document.createElement('option');
+                    option.value = staffName;
+                    datalist.appendChild(option);
+                });
+            } catch (error) {
+                // エラーは無視（ログイン前はセッションがないため）
+                console.log('Staff list load skipped (not authenticated yet)');
+            }
+        }
+
+        // ページロード時と店舗コード変更時にリストを更新
+        document.addEventListener('DOMContentLoaded', () => {
+            const storeCodeInput = document.getElementById('storeCode');
+            if (storeCodeInput) {
+                storeCodeInput.addEventListener('change', loadStaffList);
+                storeCodeInput.addEventListener('input', loadStaffList);
+            }
+        });
+
+
         async function handleLogin(event) {
             event.preventDefault();
             
@@ -264,10 +308,17 @@
             }
 
             let password = '';
+            let staffName = '';
             if (currentRole === 'admin') {
                 password = document.getElementById('adminPassword').value;
+            } else {
+                staffName = document.getElementById('staffName').value.trim();
+                if (!staffName) {
+                    errorMsg.textContent = 'スタッフ名を入力してください';
+                    errorMsg.style.display = 'block';
+                    return;
+                }
             }
-            // userの場合は空文字列でOK
 
             try {
                 const response = await fetch('/api/login', {
@@ -276,7 +327,8 @@
                     body: JSON.stringify({
                         role: currentRole,
                         password: password,
-                        store_code: storeCode
+                        store_code: storeCode,
+                        staff_name: staffName
                     })
                 });
 
