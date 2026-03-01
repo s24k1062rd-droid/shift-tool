@@ -251,6 +251,20 @@ def api_login():
         session['staff_name'] = staff_name  # スタッフロールの場合、スタッフ名を保存
     session.permanent = True
     
+    # 新規店舗の場合、ログイン時に店舗ファイルを自動作成
+    if not os.path.exists(data_file):
+        initial_data = {
+            'staff': {},
+            'shifts': {},
+            'requirements': {},
+            'shift_settings': get_default_shift_settings(),
+            'time_slots': get_default_time_slots(),
+            'admin_password': ADMIN_PASSWORD
+        }
+        os.makedirs(os.path.dirname(data_file), exist_ok=True)
+        with open(data_file, 'w', encoding='utf-8') as f:
+            json.dump(initial_data, f, ensure_ascii=False, indent=2)
+    
     return jsonify({'success': True, 'role': role, 'store_code': store_code})
 
 @app.route('/api/logout', methods=['POST'])
