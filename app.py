@@ -154,38 +154,48 @@ def load_data(store_code=None):
     
     data_file = get_store_data_file(store_code)
     print(f"[DEBUG load_data] データファイルパス: {data_file}")
+    print(f"[DEBUG load_data] ファイル存在確認: {os.path.exists(data_file)}")
     
     if os.path.exists(data_file):
-        with open(data_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            print(f"[DEBUG load_data] ファイルから読み込み。スタッフ数: {len(data.get('staff', {}))}")
-            print(f"[DEBUG load_data] 登録済みスタッフ: {list(data.get('staff', {}).keys())}")
-            # 旧データとの互換性のため、staffがリストの場合は辞書に変換
-            if isinstance(data.get('staff'), list):
-                staff_dict = {}
-                for name in data['staff']:
-                    staff_dict[name] = {'type': 'アルバイト'}  # デフォルトはアルバイト
-                data['staff'] = staff_dict
-            # shift_settingsがない場合はデフォルトを設定
-            if 'shift_settings' not in data:
-                data['shift_settings'] = get_default_shift_settings()
-            # time_slotsがない場合はデフォルトを設定
-            if 'time_slots' not in data:
-                data['time_slots'] = get_default_time_slots()
-            # 種別ごとの設定に正規化
-            staff_types = get_staff_types(data, data.get('shift_settings'))
-            data['shift_settings'] = normalize_shift_settings(
-                data.get('shift_settings', {}),
-                data.get('time_slots', get_default_time_slots()),
-                staff_types
-            )
-            # admin_passwordがない場合はデフォルトを設定
-            if 'admin_password' not in data:
-                data['admin_password'] = ADMIN_PASSWORD
-            return data
+        try:
+            with open(data_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                print(f"[DEBUG load_data] ✅ ファイルから読み込み。スタッフ数: {len(data.get('staff', {}))}")
+                print(f"[DEBUG load_data] 登録済みスタッフ: {list(data.get('staff', {}).keys())}")
+        except Exception as e:
+            print(f"[ERROR load_data] ❌ ファイル読み込みエラー: {str(e)}")
+            print(f"[ERROR load_data] ファイルパス: {data_file}")
+            raise
+        # 旧データとの互換性のため、staffがリストの場合は辞書に変換
+        if isinstance(data.get('staff'), list):
+            staff_dict = {}
+            for name in data['staff']:
+                staff_dict[name] = {'type': 'アルバイト'}  # デフォルトはアルバイト
+            data['staff'] = staff_dict
+        # shift_settingsがない場合はデフォルトを設定
+        if 'shift_settings' not in data:
+            data['shift_settings'] = get_default_shift_settings()
+        # time_slotsがない場合はデフォルトを設定
+        if 'time_slots' not in data:
+            data['time_slots'] = get_default_time_slots()
+        # custom_shiftsがない場合は初期化（自由入力シフト用）
+        if 'custom_shifts' not in data:
+            data['custom_shifts'] = {}
+        # 種別ごとの設定に正規化
+        staff_types = get_staff_types(data, data.get('shift_settings'))
+        data['shift_settings'] = normalize_shift_settings(
+            data.get('shift_settings', {}),
+            data.get('time_slots', get_default_time_slots()),
+            staff_types
+        )
+        # admin_passwordがない場合はデフォルトを設定
+        if 'admin_password' not in data:
+            data['admin_password'] = ADMIN_PASSWORD
+        return data
     return {
         'staff': {},  # スタッフ情報の辞書 {name: {type: '社員' or 'アルバイト' or 任意}}
         'shifts': {},  # {date: {staff: [time_slots]}}
+        'custom_shifts': {},  # {date: {staff: [custom_time_slots]}}
         'requirements': {},  # {date: {time_slot: count}}
         'shift_settings': get_default_shift_settings(),  # シフト詳細設定
         'time_slots': get_default_time_slots(),  # 時間帯リスト
@@ -198,9 +208,15 @@ def save_data(data, store_code=None):
         store_code = session.get('store_code', 'default')
     
     data_file = get_store_data_file(store_code)
-    os.makedirs(os.path.dirname(data_file), exist_ok=True)
-    with open(data_file, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    try:
+        os.makedirs(os.path.dirname(data_file), exist_ok=True)
+        with open(data_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        print(f"[DEBUG save_data] ✅ {store_code} のデータを保存しました: {data_file}")
+    except Exception as e:
+        print(f"[ERROR save_data] ❌ {store_code} のデータ保存に失敗しました: {str(e)}")
+        print(f"[ERROR save_data] ファイルパス: {data_file}")
+        raise
 
 @app.route('/')
 def index():
@@ -223,25 +239,39 @@ def api_login():
     role = data_request.get('role', 'user')
     staff_name = data_request.get('staff_name', '').strip()  # スタッフ名を取得
     
+    print(f"[DEBUG api_login] ログイン試行 - 店舗: {store_code}, ロール: {role}")
+    
     if not store_code:
+        print(f"[ERROR api_login] 店舗コードが入力されていません")
         return jsonify({'success': False, 'error': '店舗コードを入力してください'}), 400
     
     # スタッフロールの場合、スタッフ名を確認
     if role == 'user' and not staff_name:
+        print(f"[ERROR api_login] スタッフロール: スタッフ名が入力されていません")
         return jsonify({'success': False, 'error': 'スタッフ名を入力してください'}), 400
     
     # 店舗データを読み込み（セッション設定前なので直接指定）
     data_file = get_store_data_file(store_code)
+    print(f"[DEBUG api_login] データファイルパス: {data_file}")
+    print(f"[DEBUG api_login] ファイル存在: {os.path.exists(data_file)}")
+    
     if os.path.exists(data_file):
-        with open(data_file, 'r', encoding='utf-8') as f:
-            store_data = json.load(f)
-        store_password = store_data.get('admin_password', ADMIN_PASSWORD)
+        try:
+            with open(data_file, 'r', encoding='utf-8') as f:
+                store_data = json.load(f)
+            store_password = store_data.get('admin_password', ADMIN_PASSWORD)
+            print(f"[DEBUG api_login] ✅ 既存店舗データを読み込みました")
+        except Exception as e:
+            print(f"[ERROR api_login] ❌ 店舗データの読み込みに失敗: {str(e)}")
+            return jsonify({'success': False, 'error': '店舗データの読み込みに失敗しました: ' + str(e)}), 500
     else:
         # 新規店舗の場合はデフォルトパスワード
+        print(f"[DEBUG api_login] 新規店舗です（ファイルが存在しません）")
         store_password = ADMIN_PASSWORD
     
     # 管理者パスワード確認
     if role == 'admin' and password != store_password:
+        print(f"[ERROR api_login] 管理者: パスワードが違います")
         return jsonify({'success': False, 'error': 'パスワードが違います'}), 401
     
     # セッションに情報を保存
@@ -251,19 +281,40 @@ def api_login():
         session['staff_name'] = staff_name  # スタッフロールの場合、スタッフ名を保存
     session.permanent = True
     
+    print(f"[DEBUG api_login] ✅ セッション設定完了 - store_code: {store_code}, role: {role}")
+    
     # 新規店舗の場合、ログイン時に店舗ファイルを自動作成
     if not os.path.exists(data_file):
-        initial_data = {
-            'staff': {},
-            'shifts': {},
-            'requirements': {},
-            'shift_settings': get_default_shift_settings(),
-            'time_slots': get_default_time_slots(),
-            'admin_password': ADMIN_PASSWORD
-        }
-        os.makedirs(os.path.dirname(data_file), exist_ok=True)
-        with open(data_file, 'w', encoding='utf-8') as f:
-            json.dump(initial_data, f, ensure_ascii=False, indent=2)
+        try:
+            print(f"[DEBUG api_login] 新規店舗 '{store_code}' の初期ファイルを作成します")
+            initial_data = {
+                'staff': {},
+                'shifts': {},
+                'requirements': {},
+                'shift_settings': get_default_shift_settings(),
+                'time_slots': get_default_time_slots(),
+                'admin_password': ADMIN_PASSWORD
+            }
+            dir_path = os.path.dirname(data_file)
+            print(f"[DEBUG api_login] ディレクトリ作成: {dir_path}")
+            os.makedirs(dir_path, exist_ok=True)
+            
+            print(f"[DEBUG api_login] ファイル作成開始: {data_file}")
+            with open(data_file, 'w', encoding='utf-8') as f:
+                json.dump(initial_data, f, ensure_ascii=False, indent=2)
+            print(f"[DEBUG api_login] ✅ 新規店舗ファイル作成完了: {data_file}")
+            
+            # ファイルが本当に作成されたか確認
+            if os.path.exists(data_file):
+                print(f"[DEBUG api_login] ✅ ファイルの存在確認: {data_file} (サイズ: {os.path.getsize(data_file)} bytes)")
+            else:
+                print(f"[ERROR api_login] ❌ ファイルが見当たりません: {data_file}")
+        except Exception as e:
+            print(f"[ERROR api_login] ❌ 新規店舗ファイル作成に失敗しました: {str(e)}")
+            print(f"[ERROR api_login] ファイルパス: {data_file}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'success': False, 'error': '店舗データの作成に失敗しました: ' + str(e)}), 500
     
     return jsonify({'success': True, 'role': role, 'store_code': store_code})
 
@@ -364,9 +415,13 @@ def add_staff():
             staff_info['priority'] = priority
         
         data['staff'][staff_name] = staff_info
-        save_data(data)
-        print(f"[DEBUG] スタッフ '{staff_name}' を追加しました")
-        print(f"[DEBUG] ロック解放 - スタッフ '{staff_name}' の追加処理完了")
+        try:
+            save_data(data)
+            print(f"[DEBUG] ✅ スタッフ '{staff_name}' を追加しました")
+            print(f"[DEBUG] ロック解放 - スタッフ '{staff_name}' の追加処理完了")
+        except Exception as e:
+            print(f"[ERROR] ❌ スタッフ '{staff_name}' の保存に失敗しました: {str(e)}")
+            return jsonify({'error': 'スタッフの保存に失敗しました: ' + str(e)}), 500
     
     return jsonify({'success': True, 'staff': data['staff']})
 
@@ -388,7 +443,11 @@ def delete_staff(staff_name):
         if not data['shifts'][date]:
             del data['shifts'][date]
     
-    save_data(data)
+    try:
+        save_data(data)
+    except Exception as e:
+        print(f"[ERROR] スタッフ '{staff_name}' の削除保存に失敗: {str(e)}")
+        return jsonify({'error': 'スタッフの削除保存に失敗しました: ' + str(e)}), 500
     
     return jsonify({'success': True, 'staff': data['staff']})
 
@@ -404,12 +463,15 @@ def get_shifts(year, month):
     
     # 月のシフトデータを整形
     month_shifts = {}
+    month_custom_shifts = {}
     for day in range(1, days_in_month + 1):
         date_str = f"{year:04d}-{month:02d}-{day:02d}"
         month_shifts[date_str] = data['shifts'].get(date_str, {})
+        month_custom_shifts[date_str] = data.get('custom_shifts', {}).get(date_str, {})
     
     return jsonify({
         'shifts': month_shifts,
+        'custom_shifts': month_custom_shifts,
         'staff': data['staff'],
         'time_slots': data.get('time_slots', get_default_time_slots()),
         'change_map': build_shift_change_map(data.get('time_slots', get_default_time_slots())),
@@ -422,6 +484,7 @@ def update_shift():
     date = request.json.get('date')
     staff = request.json.get('staff')
     time_slots = request.json.get('time_slots', [])
+    custom_time_slots = request.json.get('custom_time_slots', [])
     
     if not date or not staff:
         return jsonify({'error': 'パラメータが不足しています'}), 400
@@ -433,6 +496,10 @@ def update_shift():
     
     if date not in data['shifts']:
         data['shifts'][date] = {}
+    if 'custom_shifts' not in data:
+        data['custom_shifts'] = {}
+    if date not in data['custom_shifts']:
+        data['custom_shifts'][date] = {}
     
     if time_slots:
         data['shifts'][date][staff] = time_slots
@@ -442,8 +509,20 @@ def update_shift():
             del data['shifts'][date][staff]
         if not data['shifts'][date]:
             del data['shifts'][date]
+
+    if custom_time_slots:
+        data['custom_shifts'][date][staff] = custom_time_slots
+    else:
+        if date in data['custom_shifts'] and staff in data['custom_shifts'][date]:
+            del data['custom_shifts'][date][staff]
+        if date in data['custom_shifts'] and not data['custom_shifts'][date]:
+            del data['custom_shifts'][date]
     
-    save_data(data)
+    try:
+        save_data(data)
+    except Exception as e:
+        print(f"[ERROR] シフト情報の保存に失敗: {str(e)}")
+        return jsonify({'error': 'シフト情報の保存に失敗しました: ' + str(e)}), 500
     
     return jsonify({'success': True})
 
@@ -475,7 +554,11 @@ def update_shift_inline():
         if not data['shifts'][date]:
             del data['shifts'][date]
     
-    save_data(data)
+    try:
+        save_data(data)
+    except Exception as e:
+        print(f"[ERROR] シフト更新の保存に失敗: {str(e)}")
+        return jsonify({'error': 'シフト更新の保存に失敗しました: ' + str(e)}), 500
     
     return jsonify({'success': True})
 
@@ -529,7 +612,11 @@ def update_requirement():
         if not data['requirements'][date]:
             del data['requirements'][date]
     
-    save_data(data)
+    try:
+        save_data(data)
+    except Exception as e:
+        print(f"[ERROR] 必要人数の保存に失敗: {str(e)}")
+        return jsonify({'error': '必要人数の保存に失敗しました: ' + str(e)}), 500
     
     return jsonify({'success': True})
 
@@ -610,7 +697,11 @@ def update_time_slots():
     
     data['time_slots'] = time_slots
     data['shift_settings'] = new_settings
-    save_data(data)
+    try:
+        save_data(data)
+    except Exception as e:
+        print(f"[ERROR] 時間帯の保存に失敗: {str(e)}")
+        return jsonify({'error': '時間帯の保存に失敗しました: ' + str(e)}), 500
     
     return jsonify({'success': True})
 
@@ -636,7 +727,11 @@ def change_password():
     
     # 新しいパスワードを保存
     data['admin_password'] = new_password
-    save_data(data)
+    try:
+        save_data(data)
+    except Exception as e:
+        print(f"[ERROR] パスワード変更の保存に失敗: {str(e)}")
+        return jsonify({'error': 'パスワード変更の保存に失敗しました: ' + str(e)}), 500
     
     return jsonify({'success': True, 'message': 'パスワードを変更しました'})
     
@@ -648,8 +743,8 @@ def generate_shift():
     """シフト表を生成（表形式・最適化機能付き）（管理者のみ）"""
     data = load_data()
     
-    # 日付を収集してソート
-    dates = sorted(set(list(data['shifts'].keys())))
+    # 日付を収集してソート（通常シフト + 自由入力シフト）
+    dates = sorted(set(list(data['shifts'].keys()) + list(data.get('custom_shifts', {}).keys())))
     
     if not dates:
         return jsonify({'dates': [], 'staff_list': [], 'shift_table': []})
@@ -695,6 +790,8 @@ def generate_shift():
         for date_str in month_dates:
             if date_str in optimized_shifts:
                 staff_set.update(optimized_shifts[date_str].keys())
+            if date_str in data.get('custom_shifts', {}):
+                staff_set.update(data['custom_shifts'][date_str].keys())
         
         staff_list = sorted(staff_set)
         
@@ -704,7 +801,8 @@ def generate_shift():
             row = {
                 'name': staff_name,
                 'type': staff_info.get('type', 'アルバイト'),  # 未登録スタッフはアルバイト扱い
-                'shifts': []
+                'shifts': [],  # 選択シフト（詳細設定に従って生成）
+                'custom_shifts': []  # 自由入力シフト（手作業で管理）
             }
             
             for date_str in month_dates:
@@ -712,6 +810,17 @@ def generate_shift():
                 if date_str in optimized_shifts and staff_name in optimized_shifts[date_str]:
                     time_slots = optimized_shifts[date_str][staff_name]
                 row['shifts'].append(time_slots)
+                
+                # 自由入力シフトを抽出（時間帯リストに存在しない）
+                custom_slots = []
+                if date_str in data.get('custom_shifts', {}) and staff_name in data['custom_shifts'][date_str]:
+                    custom_slots = data['custom_shifts'][date_str][staff_name]
+                elif date_str in data['shifts'] and staff_name in data['shifts'][date_str]:
+                    # 旧データ互換: custom_shifts導入前はshifts内の未定義時間帯を自由入力として扱う
+                    all_slots = data['shifts'][date_str][staff_name]
+                    time_slots_list = data.get('time_slots', get_default_time_slots())
+                    custom_slots = [s for s in all_slots if s not in time_slots_list]
+                row['custom_shifts'].append(custom_slots)
             
             month_info['staff_list'].append(row)
         
@@ -758,7 +867,12 @@ def optimize_shifts(data):
             staff_info = data['staff'].get(staff_name, {})
             staff_type = staff_info.get('type', 'アルバイト')
             if slots:  # 希望時間帯がある場合のみ
-                staff_by_type[staff_type].append((staff_name, slots))
+                # スロットを選択シフトと自由入力シフトに分離
+                selected_slots = [s for s in slots if s in time_slots]  # 時間帯リストに存在するシフト
+                
+                # 選択シフトのみを配置処理の対象にする
+                if selected_slots:
+                    staff_by_type[staff_type].append((staff_name, selected_slots))
         
         # 社員を優先的に配置（複数の時間帯を選択可能）
         for staff_type in ['社員'] + [t for t in staff_types if t != '社員']:
