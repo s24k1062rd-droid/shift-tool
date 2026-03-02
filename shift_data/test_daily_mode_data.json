@@ -1,0 +1,39 @@
+{
+  "staff": {},
+  "shifts": {},
+  "custom_shifts": {},
+  "requirements": {},
+  "shift_settings": {
+    "mode": "weekday_weekend",
+    "weekday_weekend": {
+      "weekday": {
+        "10-15": {
+          "社員": 1,
+          "アルバイト": 1
+        },
+        "15-20": {
+          "社員": 1,
+          "アルバイト": 2
+        }
+      },
+      "weekend": {
+        "10-15": {
+          "社員": 2,
+          "アルバイト": 2
+        },
+        "15-20": {
+          "社員": 2,
+          "アルバイト": 2
+        }
+      }
+    },
+    "daily": {}
+  },
+  "time_slots": [
+    "10-15",
+    "17-23",
+    "18-23",
+    "19-23"
+  ],
+  "admin_password": "admin123"
+}

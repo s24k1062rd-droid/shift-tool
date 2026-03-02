@@ -69,18 +69,38 @@ def get_default_time_slots():
 
 def get_default_shift_settings():
     """デフォルトのシフト設定を返す"""
+    # 共通の基本設定
+    base_settings = {
+        '10-15': {'社員': 1, 'アルバイト': 1},
+        '17-23': {'社員': 1, 'アルバイト': 0},
+        '18-23': {'社員': 1, 'アルバイト': 1},
+        '19-23': {'社員': 1, 'アルバイト': 2}
+    }
+    
     return {
-        'weekday': {  # 日〜木
-            '10-15': {'社員': 1, 'アルバイト': 1},
-            '17-23': {'社員': 1, 'アルバイト': 0},
-            '18-23': {'社員': 1, 'アルバイト': 1},
-            '19-23': {'社員': 1, 'アルバイト': 2}
+        'mode': 'weekday_weekend',  # 'weekday_weekend' または 'daily'
+        'weekday_weekend': {
+            'weekday': {  # 日〜木
+                '10-15': {'社員': 1, 'アルバイト': 1},
+                '17-23': {'社員': 1, 'アルバイト': 0},
+                '18-23': {'社員': 1, 'アルバイト': 1},
+                '19-23': {'社員': 1, 'アルバイト': 2}
+            },
+            'weekend': {  # 金土祝前日
+                '10-15': {'社員': 1, 'アルバイト': 1},
+                '17-23': {'社員': 1, 'アルバイト': 1},
+                '18-23': {'社員': 1, 'アルバイト': 2},
+                '19-23': {'社員': 1, 'アルバイト': 3}
+            }
         },
-        'weekend': {  # 金土祝前日
-            '10-15': {'社員': 1, 'アルバイト': 1},
-            '17-23': {'社員': 1, 'アルバイト': 1},
-            '18-23': {'社員': 1, 'アルバイト': 2},
-            '19-23': {'社員': 1, 'アルバイト': 3}
+        'daily': {  # 曜日ごと：0=日, 1=月, ..., 6=土
+            0:  base_settings.copy(),  # 日曜日
+            1:  base_settings.copy(),  # 月曜日
+            2:  base_settings.copy(),  # 火曜日
+            3:  base_settings.copy(),  # 水曜日
+            4:  base_settings.copy(),  # 木曜日
+            5:  {'10-15': {'社員': 1, 'アルバイト': 1}, '17-23': {'社員': 1, 'アルバイト': 1}, '18-23': {'社員': 1, 'アルバイト': 2}, '19-23': {'社員': 1, 'アルバイト': 3}},  # 金曜日
+            6:  {'10-15': {'社員': 1, 'アルバイト': 1}, '17-23': {'社員': 1, 'アルバイト': 1}, '18-23': {'社員': 1, 'アルバイト': 2}, '19-23': {'社員': 1, 'アルバイト': 3}}   # 土曜日
         }
     }
 
@@ -115,36 +135,83 @@ def get_staff_types(data, settings=None):
     return sort_staff_types(types)
 
 def normalize_shift_settings(settings, time_slots, staff_types):
-    """シフト設定を種別ごとの形式に正規化"""
-    normalized = {'weekday': {}, 'weekend': {}}
+    """シフト設定を正規化（新しいデータ構造に対応）"""
+    # 古い形式のデータを新形式に変換
+    if isinstance(settings, dict) and 'mode' not in settings:
+        # 古い形式: {'weekday': {...}, 'weekend': {...}}
+        settings = {
+            'mode': 'weekday_weekend',
+            'weekday_weekend': settings,
+            'daily': {i: {} for i in range(7)}
+        }
+    
+    mode = settings.get('mode', 'weekday_weekend')
+    
+    if mode == 'weekday_weekend':
+        # 平日・週末モード
+        normalized = {'weekday': {}, 'weekend': {}}
+        weekday_weekend = settings.get('weekday_weekend', {})
+        
+        for day_type in ['weekday', 'weekend']:
+            day_settings = weekday_weekend.get(day_type, {}) if isinstance(weekday_weekend, dict) else {}
+            for slot in time_slots:
+                raw_settings = day_settings.get(slot, {}) if isinstance(day_settings, dict) else {}
+                slot_settings = {}
 
-    for day_type in ['weekday', 'weekend']:
-        day_settings = settings.get(day_type, {}) if isinstance(settings, dict) else {}
-        for slot in time_slots:
-            raw_settings = day_settings.get(slot, {}) if isinstance(day_settings, dict) else {}
-            slot_settings = {}
+                if isinstance(raw_settings, dict):
+                    if 'staff' in raw_settings:
+                        slot_settings['社員'] = raw_settings.get('staff', 0)
+                    if 'parttime' in raw_settings:
+                        slot_settings['アルバイト'] = raw_settings.get('parttime', 0)
 
-            if isinstance(raw_settings, dict):
-                if 'staff' in raw_settings:
-                    slot_settings['社員'] = raw_settings.get('staff', 0)
-                if 'parttime' in raw_settings:
-                    slot_settings['アルバイト'] = raw_settings.get('parttime', 0)
+                    for key, value in raw_settings.items():
+                        if key in ['staff', 'parttime']:
+                            continue
+                        slot_settings[key] = value
 
-                for key, value in raw_settings.items():
-                    if key in ['staff', 'parttime']:
-                        continue
-                    slot_settings[key] = value
+                fallback_parttime = slot_settings.get('アルバイト', 0)
+                for staff_type in staff_types:
+                    if staff_type not in slot_settings:
+                        if staff_type != '社員' and fallback_parttime:
+                            slot_settings[staff_type] = fallback_parttime
+                        else:
+                            slot_settings[staff_type] = 0
 
-            fallback_parttime = slot_settings.get('アルバイト', 0)
-            for staff_type in staff_types:
-                if staff_type not in slot_settings:
-                    if staff_type != '社員' and fallback_parttime:
-                        slot_settings[staff_type] = fallback_parttime
-                    else:
-                        slot_settings[staff_type] = 0
+                normalized[day_type][slot] = slot_settings
+    else:
+        # 曜日ごとモード
+        normalized = {i: {} for i in range(7)}
+        daily = settings.get('daily', {})
+        
+        for day_of_week in range(7):
+            # JSONから来たキーは文字列なので、文字列キーでアクセス
+            day_key_str = str(day_of_week)
+            day_settings = daily.get(day_key_str, {}) if isinstance(daily, dict) else {}
+            for slot in time_slots:
+                raw_settings = day_settings.get(slot, {}) if isinstance(day_settings, dict) else {}
+                slot_settings = {}
 
-            normalized[day_type][slot] = slot_settings
+                if isinstance(raw_settings, dict):
+                    if 'staff' in raw_settings:
+                        slot_settings['社員'] = raw_settings.get('staff', 0)
+                    if 'parttime' in raw_settings:
+                        slot_settings['アルバイト'] = raw_settings.get('parttime', 0)
 
+                    for key, value in raw_settings.items():
+                        if key in ['staff', 'parttime']:
+                            continue
+                        slot_settings[key] = value
+
+                fallback_parttime = slot_settings.get('アルバイト', 0)
+                for staff_type in staff_types:
+                    if staff_type not in slot_settings:
+                        if staff_type != '社員' and fallback_parttime:
+                            slot_settings[staff_type] = fallback_parttime
+                        else:
+                            slot_settings[staff_type] = 0
+
+                normalized[day_of_week][slot] = slot_settings
+    
     return normalized
 
 def load_data(store_code=None):
@@ -183,13 +250,29 @@ def load_data(store_code=None):
         # custom_shiftsがない場合は初期化（自由入力シフト用）
         if 'custom_shifts' not in data:
             data['custom_shifts'] = {}
-        # 種別ごとの設定に正規化
+        
+        # 古い形式のshift_settingsをチェック（mode属性がない場合）
+        shift_settings = data.get('shift_settings', {})
+        if isinstance(shift_settings, dict) and 'mode' not in shift_settings and ('weekday' in shift_settings or 'weekend' in shift_settings):
+            # 古い形式：平日・週末パターンのみ
+            shift_settings = {
+                'mode': 'weekday_weekend',
+                'weekday_weekend': shift_settings,
+                'daily': {i: {} for i in range(7)}
+            }
+            data['shift_settings'] = shift_settings
+        
+        # 種別ごとの設定に正規化（ただしmodeはそのまま保持）
         staff_types = get_staff_types(data, data.get('shift_settings'))
-        data['shift_settings'] = normalize_shift_settings(
-            data.get('shift_settings', {}),
+        raw_settings = data.get('shift_settings', get_default_shift_settings())
+        normalized_settings = normalize_shift_settings(
+            raw_settings,
             data.get('time_slots', get_default_time_slots()),
             staff_types
         )
+        
+        # 正規化後もmodeを保持（APIレスポンスで必要）
+        data['shift_settings'] = raw_settings  # 元のデータ構造を保持
         # admin_passwordがない場合はデフォルトを設定
         if 'admin_password' not in data:
             data['admin_password'] = ADMIN_PASSWORD
@@ -681,26 +764,43 @@ def get_shift_settings():
     data = load_data()
     time_slots = data.get('time_slots', get_default_time_slots())
     staff_types = get_staff_types(data, data.get('shift_settings'))
-    settings = normalize_shift_settings(
-        data.get('shift_settings', get_default_shift_settings()),
-        time_slots,
-        staff_types
-    )
-    return jsonify({'success': True, 'settings': settings, 'time_slots': time_slots, 'staff_types': staff_types})
+    raw_settings = data.get('shift_settings', get_default_shift_settings())
+    settings = normalize_shift_settings(raw_settings, time_slots, staff_types)
+    
+    # モード情報を追加
+    mode = raw_settings.get('mode', 'weekday_weekend') if isinstance(raw_settings, dict) else 'weekday_weekend'
+    
+    return jsonify({
+        'success': True,
+        'settings': settings,
+        'time_slots': time_slots,
+        'staff_types': staff_types,
+        'mode': mode,
+        'raw_settings': raw_settings
+    })
 
 @app.route('/api/shift-settings', methods=['POST'])
 @require_admin
 def update_shift_settings():
     """シフト詳細設定を更新（管理者のみ）"""
-    settings = request.json.get('settings')
+    raw_settings = request.json.get('settings')
+    mode = request.json.get('mode', 'weekday_weekend')
     
-    if not settings:
+    if not raw_settings:
         return jsonify({'error': '設定データが不足しています'}), 400
     
     data = load_data()
     time_slots = data.get('time_slots', get_default_time_slots())
-    staff_types = get_staff_types(data, settings)
-    data['shift_settings'] = normalize_shift_settings(settings, time_slots, staff_types)
+    staff_types = get_staff_types(data, raw_settings)
+    
+    # 元の設定構造を保存（mode + weekday_weekend or daily）
+    updated_settings = {
+        'mode': mode,
+        'weekday_weekend': raw_settings.get('weekday_weekend', get_default_shift_settings().get('weekday_weekend', {})),
+        'daily': raw_settings.get('daily', get_default_shift_settings().get('daily', {}))
+    }
+    
+    data['shift_settings'] = updated_settings
     save_data(data)
     
     return jsonify({'success': True})
@@ -1013,21 +1113,34 @@ def optimize_shifts(data):
     return optimized
 
 def get_required_staff(date_str, time_slot, staff_type, settings=None):
-    """指定日時の必要人数を計算（種別ごと）"""
+    """指定日時の必要人数を計算（種別ごと、設定モード対応）"""
     date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-    weekday = date_obj.weekday()  # 0=月, 6=日
+    weekday = date_obj.weekday()  # 0=月, 1=火, ..., 5=土, 6=日
     
     # 設定を取得
     if settings is None:
         data = load_data()
         settings = data.get('shift_settings', get_default_shift_settings())
     
-    # 金土判定
-    is_weekend = weekday in [4, 5]  # 金土
+    # 設定モードを確認
+    mode = settings.get('mode', 'weekday_weekend') if isinstance(settings, dict) else 'weekday_weekend'
     
-    # 曜日に応じた設定を選択
-    day_type = 'weekend' if is_weekend else 'weekday'
-    time_settings = settings.get(day_type, {}).get(time_slot, {})
+    if mode == 'daily':
+        # 曜日ごとモード：Pythonの weekday を JSON の day_of_week に変換
+        # Pythonの weekday: 0=月, 6=日
+        # JSONの day_index: 0=日, 6=土
+        day_of_week = (weekday + 1) % 7  # 月(0) -> 1, 日(6) -> 0 に変換
+        daily_settings = settings.get('daily', {}) if isinstance(settings, dict) else {}
+        # JSONから来たキーは文字列なので、文字列キーでアクセス
+        day_key_str = str(day_of_week)
+        time_settings = daily_settings.get(day_key_str, {}).get(time_slot, {}) if isinstance(daily_settings, dict) else {}
+    else:
+        # 平日・週末モード（デフォルト）
+        is_weekend = weekday in [4, 5]  # 金(4)土(5)
+        day_type = 'weekend' if is_weekend else 'weekday'
+        weekday_weekend = settings.get('weekday_weekend', {}) if isinstance(settings, dict) else settings
+        time_settings = weekday_weekend.get(day_type, {}).get(time_slot, {}) if isinstance(weekday_weekend, dict) else {}
+    
     return time_settings.get(staff_type, 0)
 
 @app.route('/api/check_requirements', methods=['POST'])

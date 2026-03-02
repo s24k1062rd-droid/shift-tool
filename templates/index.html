@@ -513,28 +513,61 @@
                 時間帯ごとの必要人数を設定できます。シフト生成時にこの設定が使用されます。
             </p>
 
-            <h3 style="margin-top: 20px; margin-bottom: 10px; color: #2196F3;">📅 平日（日〜木）</h3>
-            <div class="settings-table">
-                <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-                    <thead>
-                        <tr id="weekdaySettingsHead" style="background: #f5f5f5;"></tr>
-                    </thead>
-                    <tbody id="weekdaySettings">
-                        <!-- JavaScriptで動的に生成 -->
-                    </tbody>
-                </table>
+            <!-- 設定モード選択 -->
+            <div style="margin-bottom: 20px; padding: 15px; background: #f9f9f9; border-radius: 4px;">
+                <h3 style="margin-bottom: 10px; font-size: 14px;">📋 設定モード</h3>
+                <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="radio" name="settingMode" value="weekday_weekend" 
+                               onchange="changSettingMode('weekday_weekend')" 
+                               style="margin-right: 8px;">
+                        <span>平日・週末パターン</span>
+                    </label>
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="radio" name="settingMode" value="daily" 
+                               onchange="changSettingMode('daily')" 
+                               style="margin-right: 8px;">
+                        <span>曜日ごとパターン（日〜土）</span>
+                    </label>
+                </div>
+                <p style="font-size: 11px; color: #999; margin-top: 10px;">
+                    ※ 平日・週末：平日（日〜木）と週末（金・土）で設定します<br>
+                    ※ 曜日ごと：各曜日ごとに詳細に設定します
+                </p>
             </div>
 
-            <h3 style="margin-top: 20px; margin-bottom: 10px; color: #2196F3;">🎉 週末（金・土）</h3>
-            <div class="settings-table">
-                <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-                    <thead>
-                        <tr id="weekendSettingsHead" style="background: #f5f5f5;"></tr>
-                    </thead>
-                    <tbody id="weekendSettings">
-                        <!-- JavaScriptで動的に生成 -->
-                    </tbody>
-                </table>
+            <!-- 平日・週末モード -->
+            <div id="weekday_weekend_mode" style="display: none;">
+                <h3 style="margin-top: 20px; margin-bottom: 10px; color: #2196F3;">📅 平日（日〜木）</h3>
+                <div class="settings-table">
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                        <thead>
+                            <tr id="weekdaySettingsHead" style="background: #f5f5f5;"></tr>
+                        </thead>
+                        <tbody id="weekdaySettings">
+                            <!-- JavaScriptで動的に生成 -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 style="margin-top: 20px; margin-bottom: 10px; color: #2196F3;">🎉 週末（金・土）</h3>
+                <div class="settings-table">
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                        <thead>
+                            <tr id="weekendSettingsHead" style="background: #f5f5f5;"></tr>
+                        </thead>
+                        <tbody id="weekendSettings">
+                            <!-- JavaScriptで動的に生成 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 曜日ごとモード -->
+            <div id="daily_mode" style="display: none;">
+                <div id="dailySettingsContainer">
+                    <!-- JavaScriptで動的に生成 -->
+                </div>
             </div>
 
             <button class="btn btn-primary" onclick="saveShiftSettings()">💾 設定を保存</button>
@@ -1586,6 +1619,8 @@
         
         let currentTimeSlots = [];
         let currentStaffTypes = [];
+        let currentSettingMode = 'weekday_weekend';
+        let currentSettings = {};
 
         async function loadShiftSettings() {
             try {
@@ -1595,8 +1630,25 @@
                 if (data.success) {
                     currentTimeSlots = data.time_slots || ['10-15', '17-23', '18-23', '19-23'];
                     currentStaffTypes = data.staff_types || ['社員', 'アルバイト'];
-                    displayTimeSlots(currentTimeSlots);
-                    displayShiftSettings(data.settings, currentTimeSlots);
+                    currentSettingMode = data.mode || 'weekday_weekend';
+                    currentSettings = data.settings;
+                    
+                    // モード選択ラジオボタンを設定
+                    const modeRadio = document.querySelector(`input[name="settingMode"][value="${currentSettingMode}"]`);
+                    if (modeRadio) {
+                        modeRadio.checked = true;
+                    }
+                    
+                    // 表示モードを切り替え
+                    showSettingMode(currentSettingMode);
+                    
+                    // 設定を表示
+                    if (currentSettingMode === 'daily') {
+                        displayDailyShiftSettings(currentSettings, currentTimeSlots);
+                    } else {
+                        displayTimeSlots(currentTimeSlots);
+                        displayShiftSettings(currentSettings, currentTimeSlots);
+                    }
                 }
             } catch (error) {
                 console.error('設定読み込みエラー:', error);
@@ -1612,6 +1664,30 @@
                 if (pa !== pb) return pa - pb;
                 return a.localeCompare(b, 'ja');
             });
+        }
+
+        function showSettingMode(mode) {
+            const weekday_weekend_mode = document.getElementById('weekday_weekend_mode');
+            const daily_mode = document.getElementById('daily_mode');
+            
+            if (mode === 'daily') {
+                weekday_weekend_mode.style.display = 'none';
+                daily_mode.style.display = 'block';
+            } else {
+                weekday_weekend_mode.style.display = 'block';
+                daily_mode.style.display = 'none';
+            }
+        }
+
+        function changSettingMode(mode) {
+            currentSettingMode = mode;
+            showSettingMode(mode);
+            // モード切り替え時は再描画するだけ（APIは呼ばない）
+            if (currentSettingMode === 'daily') {
+                displayDailyShiftSettings(currentSettings, currentTimeSlots);
+            } else {
+                displayShiftSettings(currentSettings, currentTimeSlots);
+            }
         }
 
         function renderSettingsHeader(headId, staffTypes) {
@@ -1872,44 +1948,166 @@
             });
         }
 
+        function displayDailyShiftSettings(settings, timeSlots) {
+            const container = document.getElementById('dailySettingsContainer');
+            if (!container) return;
+            
+            container.innerHTML = '';
+            
+            const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+            const staffTypes = sortStaffTypes(currentStaffTypes.length ? currentStaffTypes : ['社員', 'アルバイト']);
+            
+            dayNames.forEach((dayName, dayIndex) => {
+                // 曜日セクション
+                const section = document.createElement('div');
+                section.style.marginBottom = '20px';
+                
+                const title = document.createElement('h3');
+                title.textContent = `${dayName}曜日`;
+                title.style.marginBottom = '10px';
+                title.style.color = '#2196F3';
+                section.appendChild(title);
+                
+                // テーブル
+                const table = document.createElement('table');
+                table.style.width = '100%';
+                table.style.borderCollapse = 'collapse';
+                table.style.marginBottom = '15px';
+                
+                // ヘッダー
+                const thead = document.createElement('thead');
+                const headRow = document.createElement('tr');
+                headRow.style.background = '#f5f5f5';
+                
+                const timeHeader = document.createElement('th');
+                timeHeader.textContent = '時間帯';
+                timeHeader.style.padding = '10px';
+                timeHeader.style.textAlign = 'left';
+                timeHeader.style.border = '1px solid #ddd';
+                headRow.appendChild(timeHeader);
+                
+                staffTypes.forEach(type => {
+                    const th = document.createElement('th');
+                    th.textContent = type;
+                    th.style.padding = '10px';
+                    th.style.textAlign = 'center';
+                    th.style.border = '1px solid #ddd';
+                    headRow.appendChild(th);
+                });
+                
+                thead.appendChild(headRow);
+                table.appendChild(thead);
+                
+                // ボディ
+                const tbody = document.createElement('tbody');
+                timeSlots.forEach(slot => {
+                    // JSONから来たキーは文字列なので、文字列キーでアクセス
+                    const dayKey = String(dayIndex);
+                    const config = settings[dayKey] && settings[dayKey][slot] ? settings[dayKey][slot] : {};
+                    const row = document.createElement('tr');
+                    
+                    const timeCell = document.createElement('td');
+                    timeCell.textContent = slot;
+                    timeCell.style.padding = '10px';
+                    timeCell.style.border = '1px solid #ddd';
+                    timeCell.style.fontWeight = 'bold';
+                    row.appendChild(timeCell);
+                    
+                    staffTypes.forEach(type => {
+                        const cell = document.createElement('td');
+                        const value = Number.isFinite(config[type]) ? config[type] : (config[type] || 0);
+                        const input = document.createElement('input');
+                        input.type = 'number';
+                        input.min = '0';
+                        input.max = '10';
+                        input.value = value;
+                        input.dataset.day = dayIndex;
+                        input.dataset.slot = slot;
+                        input.dataset.type = type;
+                        input.style.width = '60px';
+                        input.style.padding = '5px';
+                        input.style.textAlign = 'center';
+                        input.style.border = '1px solid #ddd';
+                        input.style.borderRadius = '4px';
+                        
+                        cell.style.padding = '10px';
+                        cell.style.border = '1px solid #ddd';
+                        cell.style.textAlign = 'center';
+                        cell.appendChild(input);
+                        row.appendChild(cell);
+                    });
+                    
+                    tbody.appendChild(row);
+                });
+                
+                table.appendChild(tbody);
+                section.appendChild(table);
+                container.appendChild(section);
+            });
+        }
+
         async function saveShiftSettings() {
             try {
-                // 入力値から設定データを収集
-                const settings = {
-                    weekday: {},
-                    weekend: {}
-                };
-                
-                // 現在の時間帯リストを使用
-                const timeSlots = currentTimeSlots;
+                let settings;
                 const staffTypes = sortStaffTypes(currentStaffTypes.length ? currentStaffTypes : ['社員', 'アルバイト']);
+                const timeSlots = currentTimeSlots;
                 
-                // 平日設定
-                timeSlots.forEach(slot => {
-                    settings.weekday[slot] = {};
-                    staffTypes.forEach(type => {
-                        const input = document.querySelector(
-                            `input[data-day="weekday"][data-slot="${slot}"][data-type="${type}"]`
-                        );
-                        settings.weekday[slot][type] = parseInt(input?.value, 10) || 0;
+                if (currentSettingMode === 'daily') {
+                    // 曜日ごとモード
+                    settings = {
+                        daily: {}
+                    };
+                    
+                    for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+                        const dayKey = String(dayIndex);
+                        settings.daily[dayKey] = {};
+                        timeSlots.forEach(slot => {
+                            settings.daily[dayKey][slot] = {};
+                            staffTypes.forEach(type => {
+                                const input = document.querySelector(
+                                    `input[data-day="${dayIndex}"][data-slot="${slot}"][data-type="${type}"]`
+                                );
+                                settings.daily[dayKey][slot][type] = parseInt(input?.value, 10) || 0;
+                            });
+                        });
+                    }
+                } else {
+                    // 平日・週末モード
+                    settings = {
+                        weekday_weekend: {
+                            weekday: {},
+                            weekend: {}
+                        }
+                    };
+                    
+                    timeSlots.forEach(slot => {
+                        settings.weekday_weekend.weekday[slot] = {};
+                        staffTypes.forEach(type => {
+                            const input = document.querySelector(
+                                `input[data-day="weekday"][data-slot="${slot}"][data-type="${type}"]`
+                            );
+                            settings.weekday_weekend.weekday[slot][type] = parseInt(input?.value, 10) || 0;
+                        });
                     });
-                });
-                
-                // 週末設定
-                timeSlots.forEach(slot => {
-                    settings.weekend[slot] = {};
-                    staffTypes.forEach(type => {
-                        const input = document.querySelector(
-                            `input[data-day="weekend"][data-slot="${slot}"][data-type="${type}"]`
-                        );
-                        settings.weekend[slot][type] = parseInt(input?.value, 10) || 0;
+                    
+                    timeSlots.forEach(slot => {
+                        settings.weekday_weekend.weekend[slot] = {};
+                        staffTypes.forEach(type => {
+                            const input = document.querySelector(
+                                `input[data-day="weekend"][data-slot="${slot}"][data-type="${type}"]`
+                            );
+                            settings.weekday_weekend.weekend[slot][type] = parseInt(input?.value, 10) || 0;
+                        });
                     });
-                });
+                }
                 
                 const response = await fetch('/api/shift-settings', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({settings: settings})
+                    body: JSON.stringify({
+                        settings: settings,
+                        mode: currentSettingMode
+                    })
                 });
                 
                 const data = await response.json();
@@ -1930,25 +2128,55 @@
                 return;
             }
             
-            // 現在の時間帯に対してデフォルト設定を生成
             const defaultSettings = {
-                weekday: {},
-                weekend: {}
+                weekday_weekend: {
+                    weekday: {},
+                    weekend: {}
+                },
+                daily: {}
             };
             
             const staffTypes = sortStaffTypes(currentStaffTypes.length ? currentStaffTypes : ['社員', 'アルバイト']);
+            const weekendDays = [5, 6];  // 金土
+            
             currentTimeSlots.forEach(slot => {
-                defaultSettings.weekday[slot] = {};
-                defaultSettings.weekend[slot] = {};
+                // 平日・週末モード用
+                defaultSettings.weekday_weekend.weekday[slot] = {};
+                defaultSettings.weekday_weekend.weekend[slot] = {};
+                
+                // 曜日ごとモード用
+                for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+                    const dayKey = String(dayIndex);
+                    if (!defaultSettings.daily[dayKey]) {
+                        defaultSettings.daily[dayKey] = {};
+                    }
+                    defaultSettings.daily[dayKey][slot] = {};
+                }
+                
                 staffTypes.forEach(type => {
-                    const isDefault = type === '社員' || type === 'アルバイト';
-                    const value = isDefault ? 1 : 0;
-                    defaultSettings.weekday[slot][type] = value;
-                    defaultSettings.weekend[slot][type] = value;
+                    const value = (type === '社員' || type === 'アルバイト') ? 1 : 0;
+                    const weekendValue = (type === '社員' || type === 'アルバイト') ? 1 : 0;
+                    
+                    // 平日・週末モード
+                    defaultSettings.weekday_weekend.weekday[slot][type] = value;
+                    defaultSettings.weekday_weekend.weekend[slot][type] = weekendValue;
+                    
+                    // 曜日ごとモード
+                    for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+                        const dayKey = String(dayIndex);
+                        const isWeekend = weekendDays.includes(dayIndex);
+                        defaultSettings.daily[dayKey][slot][type] = isWeekend ? weekendValue : value;
+                    }
                 });
             });
             
-            displayShiftSettings(defaultSettings, currentTimeSlots);
+            // 現在のモードに応じて表示
+            if (currentSettingMode === 'daily') {
+                displayDailyShiftSettings(defaultSettings.daily, currentTimeSlots);
+            } else {
+                displayShiftSettings(defaultSettings.weekday_weekend, currentTimeSlots);
+            }
+            
             alert('✅ デフォルト設定を表示しました。保存するには「設定を保存」ボタンを押してください。');
         }
 
