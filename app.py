@@ -408,8 +408,20 @@ def import_store_data():
         return jsonify({'error': f'必須キーが不足しています: {", ".join(missing_keys)}'}), 400
 
     try:
+        # 現在のデータを読み込んで、admin_passwordを保持
+        current_data = load_data()
+        current_password = current_data.get('admin_password', ADMIN_PASSWORD)
+        
+        # インポートデータを保存
         save_data(imported_data)
+        
+        # admin_passwordを元に戻す
+        imported_data['admin_password'] = current_password
+        save_data(imported_data)
+        
+        print(f"[DEBUG import_store_data] ✅ インポート完了。admin_passwordは保持しました。")
     except Exception as e:
+        print(f"[ERROR import_store_data] インポート保存に失敗: {str(e)}")
         return jsonify({'error': 'インポート保存に失敗しました: ' + str(e)}), 500
 
     return jsonify({
@@ -753,8 +765,11 @@ def change_password():
     """管理者パスワードを変更（管理者のみ）"""
     print(f"[DEBUG change_password] セッション情報: {dict(session)}")
     print(f"[DEBUG change_password] role: {session.get('role')}")
+    print(f"[DEBUG change_password] store_code: {session.get('store_code')}")
     current_password = request.json.get('current_password', '')
     new_password = request.json.get('new_password', '')
+    
+    print(f"[DEBUG change_password] リクエスト - current_password: {current_password[:2]}..., new_password: {new_password[:2]}...")
     
     if not new_password:
         return jsonify({'error': '新しいパスワードを入力してください'}), 400
@@ -763,23 +778,38 @@ def change_password():
         return jsonify({'error': 'パスワードは4文字以上にしてください'}), 400
     
     data = load_data()
+    print(f"[DEBUG change_password] データ読み込み完了")
     
     # 現在のパスワード確認
     current_stored_password = data.get('admin_password', ADMIN_PASSWORD)
+    print(f"[DEBUG change_password] 現在保存されているパスワード: {current_stored_password[:2]}...")
+    
     if current_password != current_stored_password:
+        print(f"[ERROR change_password] パスワード不一致")
         return jsonify({'error': '現在のパスワードが違います'}), 401
     
     # 新しいパスワードを保存
+    print(f"[DEBUG change_password] パスワード変更前: {data.get('admin_password', '')[:2]}...")
     data['admin_password'] = new_password
+    print(f"[DEBUG change_password] パスワード変更後: {data.get('admin_password', '')[:2]}...")
+    
     try:
         save_data(data)
+        print(f"[DEBUG change_password] ✅ パスワード保存成功")
+        
+        # 保存後、実際にファイルから読み込んで確認
+        store_code = session.get('store_code', 'default')
+        data_file = get_store_data_file(store_code)
+        with open(data_file, 'r', encoding='utf-8') as f:
+            verify_data = json.load(f)
+        print(f"[DEBUG change_password] 保存後の確認 - ファイルのパスワード: {verify_data.get('admin_password', '')[:2]}...")
     except Exception as e:
-        print(f"[ERROR] パスワード変更の保存に失敗: {str(e)}")
+        print(f"[ERROR change_password] パスワード変更の保存に失敗: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': 'パスワード変更の保存に失敗しました: ' + str(e)}), 500
     
     return jsonify({'success': True, 'message': 'パスワードを変更しました'})
-    
-    return jsonify({'success': True})
 
 @app.route('/api/generate', methods=['GET'])
 @require_admin
