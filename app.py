@@ -371,8 +371,12 @@ def get_current_staff():
 def require_admin(f):
     """管理者専用エンドポイント用デコレータ"""
     def decorated(*args, **kwargs):
+        print(f"[DEBUG require_admin] セッション情報: {dict(session)}")
+        print(f"[DEBUG require_admin] role: {session.get('role')}")
         if session.get('role') != 'admin':
+            print(f"[ERROR require_admin] 管理者権限がありません")
             return jsonify({'error': '管理者のみアクセス可能です'}), 403
+        print(f"[DEBUG require_admin] 管理者権限OK")
         return f(*args, **kwargs)
     decorated.__name__ = f.__name__
     return decorated
@@ -747,6 +751,8 @@ def update_time_slots():
 @require_admin
 def change_password():
     """管理者パスワードを変更（管理者のみ）"""
+    print(f"[DEBUG change_password] セッション情報: {dict(session)}")
+    print(f"[DEBUG change_password] role: {session.get('role')}")
     current_password = request.json.get('current_password', '')
     new_password = request.json.get('new_password', '')
     

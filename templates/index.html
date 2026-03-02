@@ -496,12 +496,13 @@
                 </div>
                 
                 <div style="display: flex; gap: 10px; margin-top: 15px;">
-                    <input type="text" id="newTimeSlot" placeholder="例：14-18" 
+                    <input type="text" id="newTimeSlot" placeholder="例：14-18 または 掃除" 
                            style="flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
                     <button class="btn btn-primary" onclick="addTimeSlot()">➕ 時間帯を追加</button>
                 </div>
                 <p style="font-size: 11px; color: #999; margin-top: 5px;">
-                    ※ 形式: 「開始-終了」（例：10-15, 17:30-23:00, 17:30-29:00）
+                    ※ 時間形式: 「開始-終了」（例：10-15, 17:30-23:00, 17:30-29:00）<br>
+                    ※ テキスト形式: 日本語、英字など自由に入力（例：掃除, 営業準備, cleaning）
                 </p>
             </div>
         </div>
@@ -956,7 +957,8 @@
                 for (let day = 1; day <= data.days_in_month; day++) {
                     const date = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                     const slots = data.shifts[date]?.[staffName] || [];
-                    const display = slots.join(', ');
+                    const customSlots = data.custom_shifts?.[date]?.[staffName] || [];
+                    const display = [...slots, ...customSlots].join(', ');
                     
                     row += `<td class="clickable" onclick="openShiftModal('${date}', '${staffName}')">${display}</td>`;
                 }
@@ -982,7 +984,12 @@
             fetch(`/api/shifts/${currentYear}/${currentMonth}`)
                 .then(res => res.json())
                 .then(data => {
-                    const currentSlots = data.shifts[date]?.[staff] || [];
+                    const currentSelectedSlots = data.shifts[date]?.[staff] || [];
+                    const currentCustomSlots = [
+                        ...(data.custom_shifts?.[date]?.[staff] || []),
+                        ...currentSelectedSlots.filter(slot => !timeSlots.includes(slot))
+                    ].filter((slot, index, array) => array.indexOf(slot) === index);
+                    const currentSlots = [...currentSelectedSlots, ...currentCustomSlots];
                     changeMap = data.change_map || {};
                     
                     // スタッフタイプを取得
@@ -1003,13 +1010,12 @@
                         
                         // 社員にも時間帯チェックボックスを表示
                         timeSlots.forEach(slot => {
-                            addCustomSlotCheckbox(slot, currentSlots.includes(slot));
+                            addCustomSlotCheckbox(slot, currentSelectedSlots.includes(slot), 'preset');
                         });
 
                         // 既存の自由入力時間帯を表示
-                        currentSlots
-                            .filter(slot => !timeSlots.includes(slot))
-                            .forEach(slot => addCustomSlotCheckbox(slot, true));
+                        currentCustomSlots
+                            .forEach(slot => addCustomSlotCheckbox(slot, true, 'custom'));
 
                         if (customGroup) {
                             customGroup.style.display = 'block';
@@ -1028,25 +1034,24 @@
                         container.appendChild(note);
                         
                         timeSlots.forEach(slot => {
-                            addCustomSlotCheckbox(slot, currentSlots.includes(slot));
+                            addCustomSlotCheckbox(slot, currentSelectedSlots.includes(slot), 'preset');
                         });
 
                         // 既存の自由入力時間帯を表示
-                        currentSlots
-                            .filter(slot => !timeSlots.includes(slot))
-                            .forEach(slot => addCustomSlotCheckbox(slot, true));
+                        currentCustomSlots
+                            .forEach(slot => addCustomSlotCheckbox(slot, true, 'custom'));
 
                         if (customGroup) {
                             customGroup.style.display = 'block';
                         }
                     
                     // 変更オプションを追加（アルバイトのみ）
-                    if (staffType !== '社員' && currentSlots.length > 0) {
+                    if (staffType !== '社員' && currentSelectedSlots.length > 0) {
                         const changeDiv = document.createElement('div');
                         changeDiv.className = 'change-option';
                         changeDiv.innerHTML = '<h4>⚙️ 時間帯を変更</h4>';
                         
-                        currentSlots.forEach(slot => {
+                        currentSelectedSlots.forEach(slot => {
                             if (changeMap[slot] && changeMap[slot].length > 0) {
                                 const optionDiv = document.createElement('div');
                                 optionDiv.style.marginBottom = '10px';
@@ -1076,7 +1081,7 @@
                 });
         }
 
-        function addCustomSlotCheckbox(slot, isChecked) {
+            function addCustomSlotCheckbox(slot, isChecked, source = 'preset') {
             const container = document.getElementById('timeSlotCheckboxes');
             if (!container) return;
 
@@ -1090,6 +1095,7 @@
             checkbox.type = 'checkbox';
             checkbox.value = slot;
             checkbox.checked = !!isChecked;
+            checkbox.dataset.source = source;
 
             label.appendChild(checkbox);
             label.appendChild(document.createTextNode(` ${slot}`));
@@ -1107,7 +1113,7 @@
                 return;
             }
 
-            addCustomSlotCheckbox(slot, true);
+            addCustomSlotCheckbox(slot, true, 'custom');
             input.value = '';
         }
         
@@ -1126,12 +1132,20 @@
         }
 
         async function saveShift() {
-            const staffType = currentStaff[modalData.staff]?.type || 'アルバイト';
-            let selectedSlots;
-            
             // 社員・アルバイト共に、チェックされた時間帯を取得
             const checkboxes = document.querySelectorAll('#timeSlotCheckboxes input[type="checkbox"]:checked');
-            selectedSlots = Array.from(checkboxes).map(cb => cb.value);
+            const selectedSlots = [];
+            const customSlots = [];
+
+            Array.from(checkboxes).forEach(cb => {
+                const slot = cb.value;
+                const source = cb.dataset.source || 'preset';
+                if (source === 'custom') {
+                    customSlots.push(slot);
+                } else {
+                    selectedSlots.push(slot);
+                }
+            });
             
             const response = await fetch('/api/shifts', {
                 method: 'POST',
@@ -1139,7 +1153,8 @@
                 body: JSON.stringify({
                     date: modalData.date,
                     staff: modalData.staff,
-                    time_slots: selectedSlots
+                    time_slots: selectedSlots,
+                    custom_time_slots: customSlots
                 })
             });
             
@@ -1181,6 +1196,25 @@
                 controlDiv.style.borderRadius = '5px';
                 controlDiv.innerHTML = '<small style="color: #666;">💡 表の行をドラッグして並び替えられます。</small>';
                 monthGroup.appendChild(controlDiv);
+                
+                                // シフト色分けの説明パネル
+                                const legendDiv = document.createElement('div');
+                                legendDiv.style.marginBottom = '15px';
+                                legendDiv.style.padding = '10px';
+                                legendDiv.style.backgroundColor = '#fffbe6';
+                                legendDiv.style.borderRadius = '5px';
+                                legendDiv.style.fontSize = '12px';
+                                legendDiv.style.color = '#666';
+                                legendDiv.innerHTML = `
+                                    <strong>📋 シフト表示について：</strong><br>
+                                    <span style="display: inline-block; margin-top: 5px;">
+                                        通常表示＝自動生成シフト（設定に基づいて配置）
+                                    </span><br>
+                                    <span style="display: inline-block; margin-top: 5px;">
+                                        <span style="background-color: #FFB6E1; padding: 2px 6px; border-radius: 3px;">ピンク色</span> =自由入力シフト（手作業で配置・調整してください）
+                                    </span>
+                                `;
+                                monthGroup.appendChild(legendDiv);
                 
                 // 表を作成
                 const table = document.createElement('table');
@@ -1250,8 +1284,26 @@
                     
                     staff.shifts.forEach((shifts, dateIdx) => {
                         const td = document.createElement('td');
-                        const display = shifts.join('<br>');
-                        td.innerHTML = display || '-';
+                        // 選択シフトと自由入力シフトを分けて表示
+                        const customShifts = staff.custom_shifts && staff.custom_shifts[dateIdx] ? staff.custom_shifts[dateIdx] : [];
+                        
+                        let html = '';
+                        if (shifts.length > 0) {
+                            html += shifts.join('<br>');
+                        }
+                        
+                        // 自由入力シフトを色付けして表示
+                        if (customShifts.length > 0) {
+                            if (html) html += '<br>';
+                            customShifts.forEach(slot => {
+                                html += `<span style="background-color: #FFB6E1; padding: 2px 4px; border-radius: 3px; display: inline-block;">${slot}</span>`;
+                                if (customShifts.indexOf(slot) < customShifts.length - 1) {
+                                    html += '<br>';
+                                }
+                            });
+                        }
+                        
+                        td.innerHTML = html || '-';
                         td.style.textAlign = 'center';
                         td.style.cursor = 'pointer';
                         td.style.padding = '5px';
@@ -1418,8 +1470,8 @@
             menu.style.minWidth = '150px';
             
             // オプションリスト
-            const options = ['シフトなし', '10-15', '17-23', '18-23', '19-23'];
             
+            const options = ['シフトなし'].concat(timeSlots);
             options.forEach(opt => {
                 const item = document.createElement('div');
                 item.style.padding = '8px 12px';
@@ -1667,27 +1719,32 @@
                 return;
             }
             
-            // 形式チェック（例：10-15, 17:30-23:00, 17:30-29:00）
+            // 形式チェック（例：10-15, 17:30-23:00, または掃除などの文字）
             const timeSlotPattern = /^(\d{1,2})(?::([0-5]\d))?-(\d{1,2})(?::([0-5]\d))?$/;
             const match = newSlot.match(timeSlotPattern);
-            if (!match) {
-                alert('形式が正しくありません。「開始-終了」の形式で入力してください（例：10-15, 17:30-23:00, 17:30-29:00）');
-                return;
-            }
+            
+            if (match) {
+                // 時間形式の場合のバリデーション
+                const startHour = parseInt(match[1], 10);
+                const startMin = match[2] ? parseInt(match[2], 10) : 0;
+                const endHour = parseInt(match[3], 10);
+                const endMin = match[4] ? parseInt(match[4], 10) : 0;
 
-            const startHour = parseInt(match[1], 10);
-            const startMin = match[2] ? parseInt(match[2], 10) : 0;
-            const endHour = parseInt(match[3], 10);
-            const endMin = match[4] ? parseInt(match[4], 10) : 0;
+                if (startHour > 29 || endHour > 29) {
+                    alert('時間は0-29の範囲で入力してください（例：29:00）');
+                    return;
+                }
 
-            if (startHour > 29 || endHour > 29) {
-                alert('時間は0-29の範囲で入力してください（例：29:00）');
-                return;
-            }
-
-            if (startMin % 30 !== 0 || endMin % 30 !== 0) {
-                alert('分は00または30で入力してください（例：17:30）');
-                return;
+                if (startMin % 30 !== 0 || endMin % 30 !== 0) {
+                    alert('分は00または30で入力してください（例：17:30）');
+                    return;
+                }
+            } else {
+                // 文字形式の場合のバリデーション（日本語や英字など）
+                if (!/^[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ffa-zA-Z0-9\-_]+$/.test(newSlot)) {
+                    alert('形式が正しくありません。\n\n時間形式: 「開始-終了」（例：10-15, 17:30-23:00）\n文字形式: 日本語、英字、数字 （例：掃除, 営業準備, cleaning）');
+                    return;
+                }
             }
             
             if (currentTimeSlots.includes(newSlot)) {
