@@ -377,6 +377,42 @@ def require_admin(f):
     decorated.__name__ = f.__name__
     return decorated
 
+@app.route('/api/store-data/export', methods=['GET'])
+@require_admin
+def export_store_data():
+    """現在ログイン中の店舗データをエクスポート（管理者のみ）"""
+    data = load_data()
+    return jsonify({
+        'success': True,
+        'store_code': session.get('store_code', 'default'),
+        'data': data
+    })
+
+@app.route('/api/store-data/import', methods=['POST'])
+@require_admin
+def import_store_data():
+    """現在ログイン中の店舗データをインポート（管理者のみ）"""
+    payload = request.json or {}
+    imported_data = payload.get('data')
+
+    if not isinstance(imported_data, dict):
+        return jsonify({'error': 'インポートデータが不正です'}), 400
+
+    required_keys = ['staff', 'shifts', 'requirements']
+    missing_keys = [key for key in required_keys if key not in imported_data]
+    if missing_keys:
+        return jsonify({'error': f'必須キーが不足しています: {", ".join(missing_keys)}'}), 400
+
+    try:
+        save_data(imported_data)
+    except Exception as e:
+        return jsonify({'error': 'インポート保存に失敗しました: ' + str(e)}), 500
+
+    return jsonify({
+        'success': True,
+        'store_code': session.get('store_code', 'default')
+    })
+
 @app.route('/api/staff', methods=['GET'])
 def get_staff():
     """スタッフ一覧を取得"""
