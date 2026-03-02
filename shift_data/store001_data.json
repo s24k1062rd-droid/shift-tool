@@ -118,11 +118,5 @@
     "19-23"
   ],
   "admin_password": "admin123",
-  "custom_shifts": {
-    "2026-03-01": {
-      "2": [
-        "15-24"
-      ]
-    }
-  }
+  "custom_shifts": {}
 }

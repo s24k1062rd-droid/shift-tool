@@ -1515,7 +1515,7 @@
                 titleDiv.style.fontWeight = 'bold';
                 titleDiv.style.fontSize = '12px';
                 titleDiv.style.borderBottom = '1px solid #FF9ECD';
-                titleDiv.textContent = '自由入力シフトの编集';
+                titleDiv.textContent = '自由入力シフトの編集';
                 menu.appendChild(titleDiv);
                 
                 // オプション1：自由入力された時間帯（元の値）
@@ -1540,12 +1540,12 @@
                 
                 menu.appendChild(option1);
                 
-                // オプション2：削除（無入力空白）
+                // オプション2：生成シフトを削除（生成シフトのみ削除、カスタムシフトは保持）
                 const option2 = document.createElement('div');
                 option2.style.padding = '10px 12px';
                 option2.style.cursor = 'pointer';
                 option2.style.borderBottom = '1px solid #eee';
-                option2.innerHTML = `<strong>🗑️ 削除（無入力空白）</strong><br><span style="font-size: 11px; color: #666;">このセルをクリアします</span>`;
+                option2.innerHTML = `<strong>🗑️ 削除</strong><br><span style="font-size: 11px; color: #666;">生成シフトを削除します</span>`;
                 
                 option2.addEventListener('mouseover', () => {
                     option2.style.backgroundColor = '#fff9fc';
@@ -1555,32 +1555,12 @@
                 });
                 
                 option2.addEventListener('click', async () => {
-                    // カスタムシフトを削除
-                    await deleteCustomShift(staffName, dateStr);
+                    // 生成シフトのみを削除（カスタムシフトは保持）
+                    await deleteGeneratedShift(staffName, dateStr);
                     menu.remove();
                 });
                 
                 menu.appendChild(option2);
-                
-                // オプション3：時間変更の実入力
-                const option3 = document.createElement('div');
-                option3.style.padding = '10px 12px';
-                option3.style.cursor = 'pointer';
-                option3.innerHTML = `<strong>⏰ 時間変更の実入力</strong><br><span style="font-size: 11px; color: #666;">定義済みの時間帯から選択</span>`;
-                
-                option3.addEventListener('mouseover', () => {
-                    option3.style.backgroundColor = '#fff9fc';
-                });
-                option3.addEventListener('mouseout', () => {
-                    option3.style.backgroundColor = 'white';
-                });
-                
-                option3.addEventListener('click', async () => {
-                    // 定義済みの時間帯から選択
-                    showTimeSlotSelectionMenu(menu, staffName, dateStr);
-                });
-                
-                menu.appendChild(option3);
                 
             } else {
                 // 通常のシフト選択メニュー
@@ -1638,9 +1618,33 @@
             }
         }
         
-        // カスタムシフトを削除
-        async function deleteCustomShift(staffName, dateStr) {
-            await updateCustomShift(staffName, dateStr, []);
+        // 生成シフトを削除（カスタムシフトは保持して色付けを保つ）
+        async function deleteGeneratedShift(staffName, dateStr) {
+            try {
+                const response = await fetch('/api/delete-generated-shift', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        staff_name: staffName,
+                        date: dateStr
+                    })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        // 表を再生成して反映（カスタムシフトは残ったまま）
+                        await generateShift();
+                    } else {
+                        alert('エラー: ' + (result.error || '削除に失敗しました'));
+                    }
+                } else {
+                    alert('サーバーエラー: ' + response.status);
+                }
+            } catch (error) {
+                console.error('Error deleting generated shift:', error);
+                alert('エラーが発生しました: ' + error.message);
+            }
         }
         
         // カスタムシフトを更新
@@ -1671,84 +1675,6 @@
                 console.error('Error updating custom shift:', error);
                 alert('エラーが発生しました: ' + error.message);
             }
-        }
-        
-        // 定義済みの時間帯から選択するメニュー
-        function showTimeSlotSelectionMenu(parentMenu, staffName, dateStr) {
-            parentMenu.innerHTML = '';
-            
-            // タイトル
-            const titleDiv = document.createElement('div');
-            titleDiv.style.padding = '8px 12px';
-            titleDiv.style.backgroundColor = '#2196F3';
-            titleDiv.style.color = 'white';
-            titleDiv.style.fontWeight = 'bold';
-            titleDiv.style.fontSize = '12px';
-            titleDiv.style.borderBottom = '1px solid #1976D2';
-            titleDiv.textContent = '定義済みの時間帯から選択';
-            parentMenu.appendChild(titleDiv);
-            
-            // 戻るボタン
-            const backBtn = document.createElement('div');
-            backBtn.style.padding = '8px 12px';
-            backBtn.style.cursor = 'pointer';
-            backBtn.style.borderBottom = '1px solid #eee';
-            backBtn.style.color = '#2196F3';
-            backBtn.textContent = '← 戻る';
-            
-            backBtn.addEventListener('click', () => {
-                // 元のメニューに戻す
-                const td = document.querySelector(`[data-staff-name="${staffName}"][data-date-str="${dateStr}"]`);
-                if (td) {
-                    showShiftEditMenu(td, null);
-                }
-            });
-            
-            parentMenu.appendChild(backBtn);
-            
-            // シフトなし
-            const noneItem = document.createElement('div');
-            noneItem.style.padding = '8px 12px';
-            noneItem.style.cursor = 'pointer';
-            noneItem.style.borderBottom = '1px solid #eee';
-            noneItem.innerHTML = 'シフトなし';
-            
-            noneItem.addEventListener('mouseover', () => {
-                noneItem.style.backgroundColor = '#f0f0f0';
-            });
-            noneItem.addEventListener('mouseout', () => {
-                noneItem.style.backgroundColor = 'white';
-            });
-            
-            noneItem.addEventListener('click', async () => {
-                await updateShift(staffName, dateStr, []);
-                document.getElementById('shiftEditMenu').remove();
-            });
-            
-            parentMenu.appendChild(noneItem);
-            
-            // 時間帯ごとのアイテム
-            timeSlots.forEach(slot => {
-                const item = document.createElement('div');
-                item.style.padding = '8px 12px';
-                item.style.cursor = 'pointer';
-                item.style.borderBottom = '1px solid #eee';
-                item.innerHTML = slot;
-                
-                item.addEventListener('mouseover', () => {
-                    item.style.backgroundColor = '#f0f0f0';
-                });
-                item.addEventListener('mouseout', () => {
-                    item.style.backgroundColor = 'white';
-                });
-                
-                item.addEventListener('click', async () => {
-                    await updateShift(staffName, dateStr, [slot]);
-                    document.getElementById('shiftEditMenu').remove();
-                });
-                
-                parentMenu.appendChild(item);
-            });
         }
         
         // シフトをサーバーに送信して更新

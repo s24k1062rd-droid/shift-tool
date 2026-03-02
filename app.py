@@ -736,6 +736,34 @@ def update_custom_shift():
     
     return jsonify({'success': True})
 
+@app.route('/api/delete-generated-shift', methods=['POST'])
+@require_admin
+def delete_generated_shift():
+    """生成シフト（選択シフト）を削除し、カスタムシフトは保持（管理者のみ）"""
+    staff_name = request.json.get('staff_name')
+    date = request.json.get('date')
+    
+    if not date or not staff_name:
+        return jsonify({'error': 'パラメータが不足しています', 'success': False}), 400
+    
+    data = load_data()
+    
+    # 生成シフト（shifts）から削除
+    if date in data['shifts'] and staff_name in data['shifts'][date]:
+        del data['shifts'][date][staff_name]
+        if not data['shifts'][date]:
+            del data['shifts'][date]
+    
+    # カスタムシフトは保持（削除しない）
+    
+    try:
+        save_data(data)
+    except Exception as e:
+        print(f"[ERROR] 生成シフト削除の保存に失敗: {str(e)}")
+        return jsonify({'error': '生成シフト削除の保存に失敗しました: ' + str(e)}), 500
+    
+    return jsonify({'success': True})
+
 @app.route('/api/requirements/<year>/<month>', methods=['GET'])
 def get_requirements(year, month):
     """指定月の必要人数を取得"""
