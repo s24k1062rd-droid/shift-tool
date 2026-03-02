@@ -30,14 +30,16 @@ ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'admin123')
 
 # データファイルのパス
 DATA_FILE = 'shift_data.json'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SHIFT_DATA_DIR = os.path.join(BASE_DIR, 'shift_data')
 
 # スタッフ追加のスレッドセーフなロック
 staff_lock = threading.Lock()
 
 def get_store_data_file(store_code):
     """店舗ごとのデータファイルパスを取得"""
-    os.makedirs('shift_data', exist_ok=True)
-    return os.path.join('shift_data', f'{store_code}_data.json')
+    os.makedirs(SHIFT_DATA_DIR, exist_ok=True)
+    return os.path.join(SHIFT_DATA_DIR, f'{store_code}_data.json')
 
 def build_shift_change_map(time_slots):
     """時間帯の並び順に基づいて変更可能先を作成"""
