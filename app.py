@@ -699,6 +699,43 @@ def update_shift_inline():
     
     return jsonify({'success': True})
 
+@app.route('/api/update-custom-shift', methods=['POST'])
+@require_admin
+def update_custom_shift():
+    """自由入力シフトを更新（管理者のみ）"""
+    staff_name = request.json.get('staff_name')
+    date = request.json.get('date')
+    custom_shifts = request.json.get('custom_shifts', [])
+    
+    if not date or not staff_name:
+        return jsonify({'error': 'パラメータが不足しています', 'success': False}), 400
+    
+    data = load_data()
+    
+    # custom_shiftsキーが存在しない場合は初期化
+    if 'custom_shifts' not in data:
+        data['custom_shifts'] = {}
+    
+    if custom_shifts:
+        # 日付キーが存在しない場合は初期化
+        if date not in data['custom_shifts']:
+            data['custom_shifts'][date] = {}
+        data['custom_shifts'][date][staff_name] = custom_shifts
+    else:
+        # 空の場合は削除
+        if date in data['custom_shifts'] and staff_name in data['custom_shifts'][date]:
+            del data['custom_shifts'][date][staff_name]
+            if not data['custom_shifts'][date]:
+                del data['custom_shifts'][date]
+    
+    try:
+        save_data(data)
+    except Exception as e:
+        print(f"[ERROR] カスタムシフト更新の保存に失敗: {str(e)}")
+        return jsonify({'error': 'カスタムシフト更新の保存に失敗しました: ' + str(e)}), 500
+    
+    return jsonify({'success': True})
+
 @app.route('/api/requirements/<year>/<month>', methods=['GET'])
 def get_requirements(year, month):
     """指定月の必要人数を取得"""
@@ -917,11 +954,27 @@ def generate_shift():
     """シフト表を生成（表形式・最適化機能付き）（管理者のみ）"""
     data = load_data()
     
+    # クエリパラメーターから年月を取得
+    year = request.args.get('year', type=int)
+    month = request.args.get('month', type=int)
+    
     # 日付を収集してソート（通常シフト + 自由入力シフト）
     dates = sorted(set(list(data['shifts'].keys()) + list(data.get('custom_shifts', {}).keys())))
     
     if not dates:
-        return jsonify({'dates': [], 'staff_list': [], 'shift_table': []})
+        return jsonify([])
+    
+    # 年月が指定されている場合、その月のみにフィルタリング
+    if year is not None and month is not None:
+        filtered_dates = []
+        for date_str in dates:
+            date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+            if date_obj.year == year and date_obj.month == month:
+                filtered_dates.append(date_str)
+        dates = filtered_dates
+    
+    if not dates:
+        return jsonify([])
     
     # シフトを最適化（必要人数に合わせて調整）
     optimized_shifts = optimize_shifts(data)
