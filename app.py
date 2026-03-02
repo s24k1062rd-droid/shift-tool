@@ -748,16 +748,23 @@ def delete_generated_shift():
     
     data = load_data()
     
+    # カスタムシフトを事前に保存（削除対象ではない）
+    preserved_custom_shifts = None
+    if 'custom_shifts' in data and date in data['custom_shifts'] and staff_name in data['custom_shifts'][date]:
+        preserved_custom_shifts = data['custom_shifts'][date][staff_name].copy()
+    
     # 生成シフト（shifts）から削除
     if date in data['shifts'] and staff_name in data['shifts'][date]:
         del data['shifts'][date][staff_name]
         if not data['shifts'][date]:
             del data['shifts'][date]
     
-    # カスタムシフトは保持（削除しない）
+    # カスタムシフトが保存されていたら復元（実装上は常に保持すること）
+    # ただし、上記で削除しないので実装上の余剰処理
     
     try:
         save_data(data)
+        print(f"[INFO] 生成シフト削除完了: staff={staff_name}, date={date}, custom_shifts保持={preserved_custom_shifts is not None}")
     except Exception as e:
         print(f"[ERROR] 生成シフト削除の保存に失敗: {str(e)}")
         return jsonify({'error': '生成シフト削除の保存に失敗しました: ' + str(e)}), 500

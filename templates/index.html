@@ -1485,6 +1485,8 @@
             const currentShifts = JSON.parse(td.dataset.currentShifts);
             const customShifts = JSON.parse(td.dataset.customShifts || '[]');
             
+            console.log('生成シフト表のメニュー表示:', {staffName, dateStr, currentShifts, customShifts});
+            
             // 既存のメニューがあれば削除
             const existingMenu = document.getElementById('shiftEditMenu');
             if (existingMenu) {
@@ -1502,7 +1504,7 @@
             menu.style.borderRadius = '4px';
             menu.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
             menu.style.zIndex = '10000';
-            menu.style.minWidth = '200px';
+            menu.style.minWidth = '220px';
             menu.style.maxWidth = '300px';
             
             // 自由入力シフトがある場合は専用メニューを表示
@@ -1515,7 +1517,7 @@
                 titleDiv.style.fontWeight = 'bold';
                 titleDiv.style.fontSize = '12px';
                 titleDiv.style.borderBottom = '1px solid #FF9ECD';
-                titleDiv.textContent = '自由入力シフトの編集';
+                titleDiv.innerHTML = '✏️ カスタムシフト編集';
                 menu.appendChild(titleDiv);
                 
                 // オプション1：自由入力された時間帯（元の値）
@@ -1523,7 +1525,7 @@
                 option1.style.padding = '10px 12px';
                 option1.style.cursor = 'pointer';
                 option1.style.borderBottom = '1px solid #eee';
-                option1.innerHTML = `<strong>✏️ 自由入力された時間帯</strong><br><span style="font-size: 11px; color: #666;">元の時間：${customShifts.join(', ')}</span>`;
+                option1.innerHTML = `<strong>修正</strong><br><span style="font-size: 11px; color: #666;">現在: ${customShifts.join(', ')}</span>`;
                 
                 option1.addEventListener('mouseover', () => {
                     option1.style.backgroundColor = '#fff9fc';
@@ -1533,7 +1535,8 @@
                 });
                 
                 option1.addEventListener('click', async () => {
-                    // 自由入力シフトを保持・更新（カスタム入力）
+                    console.log('修正をクリック');
+                    // 自由入力シフトを修正（カスタム入力）
                     showCustomShiftInput(staffName, dateStr, customShifts);
                     menu.remove();
                 });
@@ -1545,7 +1548,7 @@
                 option2.style.padding = '10px 12px';
                 option2.style.cursor = 'pointer';
                 option2.style.borderBottom = '1px solid #eee';
-                option2.innerHTML = `<strong>🗑️ 削除</strong><br><span style="font-size: 11px; color: #666;">生成シフトを削除します</span>`;
+                option2.innerHTML = `<strong>生成分を削除</strong><br><span style="font-size: 11px; color: #666;">カスタムシフトは保持됩니다</span>`;
                 
                 option2.addEventListener('mouseover', () => {
                     option2.style.backgroundColor = '#fff9fc';
@@ -1555,6 +1558,7 @@
                 });
                 
                 option2.addEventListener('click', async () => {
+                    console.log('生成分削除をクリック', {staffName, dateStr});
                     // 生成シフトのみを削除（カスタムシフトは保持）
                     await deleteGeneratedShift(staffName, dateStr);
                     menu.remove();
@@ -1585,6 +1589,7 @@
                     });
                     
                     item.addEventListener('click', async () => {
+                        console.log('シフト更新:', {opt, currentShifts});
                         // シフトを更新
                         const newShifts = opt === 'シフトなし' ? [] : [opt];
                         await updateShift(staffName, dateStr, newShifts);
@@ -1621,6 +1626,7 @@
         // 生成シフトを削除（カスタムシフトは保持して色付けを保つ）
         async function deleteGeneratedShift(staffName, dateStr) {
             try {
+                console.log('deleteGeneratedShiftを実行:', {staffName, dateStr, currentYear, currentMonth});
                 const response = await fetch('/api/delete-generated-shift', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -1630,10 +1636,15 @@
                     })
                 });
                 
+                console.log('delete-generated-shift API response status:', response.status);
+                
                 if (response.ok) {
                     const result = await response.json();
+                    console.log('delete-generated-shift API result:', result);
+                    
                     if (result.success) {
                         // 表を再生成して反映（カスタムシフトは残ったまま）
+                        console.log('表を再生成します');
                         await generateShift();
                     } else {
                         alert('エラー: ' + (result.error || '削除に失敗しました'));
