@@ -36,6 +36,129 @@ SHIFT_DATA_DIR = os.path.join(BASE_DIR, 'shift_data')
 # スタッフ追加のスレッドセーフなロック
 staff_lock = threading.Lock()
 
+# 日本の祝日リスト（2024-2027年の主な祝日）
+# 年を超えた場合は適切に拡張してください
+JAPAN_HOLIDAYS = {
+    # 2024年
+    '2024-01-01': '元日',
+    '2024-01-08': '成人の日',
+    '2024-02-11': '建国記念の日',
+    '2024-02-12': '振替休日',
+    '2024-03-20': '春分の日',
+    '2024-04-29': '昭和の日',
+    '2024-05-03': '憲法記念日',
+    '2024-05-04': 'みどりの日',
+    '2024-05-05': 'こどもの日',
+    '2024-05-06': '振替休日',
+    '2024-07-15': '海の日',
+    '2024-08-11': '山の日',
+    '2024-08-12': '振替休日',
+    '2024-09-16': '敬老の日',
+    '2024-09-22': '秋分の日',
+    '2024-09-23': '振替休日',
+    '2024-10-14': 'スポーツの日',
+    '2024-11-03': '文化の日',
+    '2024-11-04': '振替休日',
+    '2024-11-23': '勤労感謝の日',
+    # 2025年
+    '2025-01-01': '元日',
+    '2025-01-13': '成人の日',
+    '2025-02-11': '建国記念の日',
+    '2025-03-20': '春分の日',
+    '2025-04-29': '昭和の日',
+    '2025-05-03': '憲法記念日',
+    '2025-05-04': 'みどりの日',
+    '2025-05-05': 'こどもの日',
+    '2025-05-06': '振替休日',
+    '2025-07-21': '海の日',
+    '2025-08-11': '山の日',
+    '2025-09-15': '敬老の日',
+    '2025-09-23': '秋分の日',
+    '2025-10-13': 'スポーツの日',
+    '2025-11-03': '文化の日',
+    '2025-11-23': '勤労感謝の日',
+    '2025-11-24': '振替休日',
+    # 2026年
+    '2026-01-01': '元日',
+    '2026-01-12': '成人の日',
+    '2026-02-11': '建国記念の日',
+    '2026-03-20': '春分の日',
+    '2026-03-21': '振替休日',
+    '2026-04-29': '昭和の日',
+    '2026-05-03': '憲法記念日',
+    '2026-05-04': 'みどりの日',
+    '2026-05-05': 'こどもの日',
+    '2026-05-06': '振替休日',
+    '2026-07-20': '海の日',
+    '2026-08-10': '山の日',
+    '2026-09-21': '敬老の日',
+    '2026-09-22': '秋分の日',
+    '2026-10-12': 'スポーツの日',
+    '2026-11-03': '文化の日',
+    '2026-11-23': '勤労感謝の日',
+    # 2027年
+    '2027-01-01': '元日',
+    '2027-01-11': '成人の日',
+    '2027-02-11': '建国記念の日',
+    '2027-03-21': '春分の日',
+    '2027-04-29': '昭和の日',
+    '2027-05-03': '憲法記念日',
+    '2027-05-04': 'みどりの日',
+    '2027-05-05': 'こどもの日',
+    '2027-07-19': '海の日',
+    '2027-08-11': '山の日',
+    '2027-09-20': '敬老の日',
+    '2027-09-23': '秋分の日',
+    '2027-10-11': 'スポーツの日',
+    '2027-11-03': '文化の日',
+    '2027-11-23': '勤労感謝の日',
+}
+
+def is_holiday(date_obj):
+    """指定日が祝日かどうかを判定"""
+    if isinstance(date_obj, str):
+        date_obj = datetime.strptime(date_obj, '%Y-%m-%d').date()
+    elif isinstance(date_obj, datetime):
+        date_obj = date_obj.date()
+    
+    date_str = date_obj.strftime('%Y-%m-%d')
+    return date_str in JAPAN_HOLIDAYS
+
+def is_day_before_holiday(date_obj):
+    """指定日が祝日の前日かどうかを判定"""
+    if isinstance(date_obj, str):
+        date_obj = datetime.strptime(date_obj, '%Y-%m-%d').date()
+    elif isinstance(date_obj, datetime):
+        date_obj = date_obj.date()
+    
+    next_day = date_obj + timedelta(days=1)
+    next_day_str = next_day.strftime('%Y-%m-%d')
+    return next_day_str in JAPAN_HOLIDAYS
+
+def get_day_type(date_str):
+    """
+    指定日の種類を返す
+    返り値: 'sunday' (日), 'mon_thu' (月-木), 'friday' (金), 'saturday' (土), 'holiday' (祝日), 'day_before_holiday' (祝日前日)
+    """
+    date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+    
+    # 祝日判定
+    if is_holiday(date_obj):
+        return 'holiday'
+    if is_day_before_holiday(date_obj):
+        return 'day_before_holiday'
+    
+    # 曜日判定 (0=月, 6=日)
+    weekday = date_obj.weekday()
+    if weekday == 4:  # 金
+        return 'friday'
+    elif weekday == 5:  # 土
+        return 'saturday'
+    elif weekday == 6:  # 日
+        return 'sunday'
+    else:  # 月-木
+        return 'mon_thu'
+
 def get_store_data_file(store_code):
     """店舗ごとのデータファイルパスを取得"""
     os.makedirs(SHIFT_DATA_DIR, exist_ok=True)
@@ -147,7 +270,38 @@ def normalize_shift_settings(settings, time_slots, staff_types):
     
     mode = settings.get('mode', 'weekday_weekend')
     
-    if mode == 'weekday_weekend':
+    if mode == 'weekday_weekend_with_holidays':
+        # 祝日別モード（日曜日を独立）
+        normalized = {'sunday': {}, 'mon_thu': {}, 'friday': {}, 'saturday': {}, 'holiday': {}, 'day_before_holiday': {}}
+        weekday_weekend_extended = settings.get('weekday_weekend_with_holidays', {})
+        
+        for day_type in ['sunday', 'mon_thu', 'friday', 'saturday', 'holiday', 'day_before_holiday']:
+            day_settings = weekday_weekend_extended.get(day_type, {}) if isinstance(weekday_weekend_extended, dict) else {}
+            for slot in time_slots:
+                raw_settings = day_settings.get(slot, {}) if isinstance(day_settings, dict) else {}
+                slot_settings = {}
+
+                if isinstance(raw_settings, dict):
+                    if 'staff' in raw_settings:
+                        slot_settings['社員'] = raw_settings.get('staff', 0)
+                    if 'parttime' in raw_settings:
+                        slot_settings['アルバイト'] = raw_settings.get('parttime', 0)
+
+                    for key, value in raw_settings.items():
+                        if key in ['staff', 'parttime']:
+                            continue
+                        slot_settings[key] = value
+
+                fallback_parttime = slot_settings.get('アルバイト', 0)
+                for staff_type in staff_types:
+                    if staff_type not in slot_settings:
+                        if staff_type != '社員' and fallback_parttime:
+                            slot_settings[staff_type] = fallback_parttime
+                        else:
+                            slot_settings[staff_type] = 0
+
+                normalized[day_type][slot] = slot_settings
+    elif mode == 'weekday_weekend':
         # 平日・週末モード
         normalized = {'weekday': {}, 'weekend': {}}
         weekday_weekend = settings.get('weekday_weekend', {})
@@ -865,12 +1019,22 @@ def update_shift_settings():
     time_slots = data.get('time_slots', get_default_time_slots())
     staff_types = get_staff_types(data, raw_settings)
     
-    # 元の設定構造を保存（mode + weekday_weekend or daily）
-    updated_settings = {
-        'mode': mode,
-        'weekday_weekend': raw_settings.get('weekday_weekend', get_default_shift_settings().get('weekday_weekend', {})),
-        'daily': raw_settings.get('daily', get_default_shift_settings().get('daily', {}))
-    }
+    # 元の設定構造を保存（mode + weekday_weekend or daily or weekday_weekend_with_holidays）
+    if mode == 'weekday_weekend_with_holidays':
+        # 祝日対応モード
+        updated_settings = {
+            'mode': mode,
+            'weekday_weekend_with_holidays': raw_settings.get('weekday_weekend_with_holidays', {}),
+            'weekday_weekend': get_default_shift_settings().get('weekday_weekend', {}),  # 後方互換性
+            'daily': get_default_shift_settings().get('daily', {})
+        }
+    else:
+        # デフォルトモード（weekday_weekend または daily）
+        updated_settings = {
+            'mode': mode,
+            'weekday_weekend': raw_settings.get('weekday_weekend', get_default_shift_settings().get('weekday_weekend', {})),
+            'daily': raw_settings.get('daily', get_default_shift_settings().get('daily', {}))
+        }
     
     data['shift_settings'] = updated_settings
     save_data(data)
@@ -1201,7 +1365,7 @@ def optimize_shifts(data):
     return optimized
 
 def get_required_staff(date_str, time_slot, staff_type, settings=None):
-    """指定日時の必要人数を計算（種別ごと、設定モード対応）"""
+    """指定日時の必要人数を計算（種別ごと、設定モード対応、祝日判定対応）"""
     date_obj = datetime.strptime(date_str, '%Y-%m-%d')
     weekday = date_obj.weekday()  # 0=月, 1=火, ..., 5=土, 6=日
     
@@ -1222,9 +1386,15 @@ def get_required_staff(date_str, time_slot, staff_type, settings=None):
         # JSONから来たキーは文字列なので、文字列キーでアクセス
         day_key_str = str(day_of_week)
         time_settings = daily_settings.get(day_key_str, {}).get(time_slot, {}) if isinstance(daily_settings, dict) else {}
+    elif mode == 'weekday_weekend_with_holidays':
+        # 祝日対応モード（日-木、金、土、祝日、祝前日に分けて設定）
+        day_type = get_day_type(date_str)
+        weekday_weekend_extended = settings.get('weekday_weekend_with_holidays', {}) if isinstance(settings, dict) else {}
+        time_settings = weekday_weekend_extended.get(day_type, {}).get(time_slot, {}) if isinstance(weekday_weekend_extended, dict) else {}
     else:
         # 平日・週末モード（デフォルト）
-        is_weekend = weekday in [4, 5]  # 金(4)土(5)
+        # 祝前日の場合は週末扱いにする（祝日は祝日別パターンでのみ対応）
+        is_weekend = weekday in [4, 5] or is_day_before_holiday(date_obj)  # 金(4)土(5)または祝前日
         day_type = 'weekend' if is_weekend else 'weekday'
         weekday_weekend = settings.get('weekday_weekend', {}) if isinstance(settings, dict) else settings
         time_settings = weekday_weekend.get(day_type, {}).get(time_slot, {}) if isinstance(weekday_weekend, dict) else {}

@@ -524,6 +524,12 @@
                         <span>平日・週末パターン</span>
                     </label>
                     <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="radio" name="settingMode" value="weekday_weekend_with_holidays" 
+                               onchange="changSettingMode('weekday_weekend_with_holidays')" 
+                               style="margin-right: 8px;">
+                        <span>祝日別パターン（日、月-木、金、土、祝日、祝前日）</span>
+                    </label>
+                    <label style="display: flex; align-items: center; cursor: pointer;">
                         <input type="radio" name="settingMode" value="daily" 
                                onchange="changSettingMode('daily')" 
                                style="margin-right: 8px;">
@@ -531,7 +537,8 @@
                     </label>
                 </div>
                 <p style="font-size: 11px; color: #999; margin-top: 10px;">
-                    ※ 平日・週末：平日（日〜木）と週末（金・土）で設定します<br>
+                    ※ 平日・週末：日-木を平日、金・土・祝前日を週末として設定します（祝日は祝日別パターンで対応）<br>
+                    ※ 祝日別：日曜日、月-木、金、土、祝日、祝前日を個別に設定できます<br>
                     ※ 曜日ごと：各曜日ごとに詳細に設定します
                 </p>
             </div>
@@ -550,13 +557,88 @@
                     </table>
                 </div>
 
-                <h3 style="margin-top: 20px; margin-bottom: 10px; color: #2196F3;">🎉 週末（金・土）</h3>
+                <h3 style="margin-top: 20px; margin-bottom: 10px; color: #2196F3;">🎉 週末・祝前日（金・土・祝前日）</h3>
                 <div class="settings-table">
                     <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
                         <thead>
                             <tr id="weekendSettingsHead" style="background: #f5f5f5;"></tr>
                         </thead>
                         <tbody id="weekendSettings">
+                            <!-- JavaScriptで動的に生成 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 祝日別モード -->
+            <div id="weekday_weekend_with_holidays_mode" style="display: none;">
+                <h3 style="margin-top: 20px; margin-bottom: 10px; color: #2196F3;">☀️ 日（日曜日）</h3>
+                <div class="settings-table">
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                        <thead>
+                            <tr id="sundaySettingsHead" style="background: #f5f5f5;"></tr>
+                        </thead>
+                        <tbody id="sundaySettings">
+                            <!-- JavaScriptで動的に生成 -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 style="margin-top: 20px; margin-bottom: 10px; color: #2196F3;">📅 月-木（通常の平日）</h3>
+                <div class="settings-table">
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                        <thead>
+                            <tr id="monThuSettingsHead" style="background: #f5f5f5;"></tr>
+                        </thead>
+                        <tbody id="monThuSettings">
+                            <!-- JavaScriptで動的に生成 -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 style="margin-top: 20px; margin-bottom: 10px; color: #2196F3;">🟠 金（金曜日）</h3>
+                <div class="settings-table">
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                        <thead>
+                            <tr id="fridaySettingsHead" style="background: #f5f5f5;"></tr>
+                        </thead>
+                        <tbody id="fridaySettings">
+                            <!-- JavaScriptで動的に生成 -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 style="margin-top: 20px; margin-bottom: 10px; color: #2196F3;">⭐ 土（土曜日）</h3>
+                <div class="settings-table">
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                        <thead>
+                            <tr id="saturdaySettingsHead" style="background: #f5f5f5;"></tr>
+                        </thead>
+                        <tbody id="saturdaySettings">
+                            <!-- JavaScriptで動的に生成 -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 style="margin-top: 20px; margin-bottom: 10px; color: #2196F3;">✨ 祝日</h3>
+                <div class="settings-table">
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                        <thead>
+                            <tr id="holidaySettingsHead" style="background: #f5f5f5;"></tr>
+                        </thead>
+                        <tbody id="holidaySettings">
+                            <!-- JavaScriptで動的に生成 -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 style="margin-top: 20px; margin-bottom: 10px; color: #2196F3;">🌅 祝日前日</h3>
+                <div class="settings-table">
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                        <thead>
+                            <tr id="dayBeforeHolidaySettingsHead" style="background: #f5f5f5;"></tr>
+                        </thead>
+                        <tbody id="dayBeforeHolidaySettings">
                             <!-- JavaScriptで動的に生成 -->
                         </tbody>
                     </table>
@@ -1723,10 +1805,12 @@
                     showSettingMode(currentSettingMode);
                     
                     // 設定を表示
+                    displayTimeSlots(currentTimeSlots);
                     if (currentSettingMode === 'daily') {
                         displayDailyShiftSettings(currentSettings, currentTimeSlots);
+                    } else if (currentSettingMode === 'weekday_weekend_with_holidays') {
+                        displayHolidayShiftSettings(currentSettings, currentTimeSlots);
                     } else {
-                        displayTimeSlots(currentTimeSlots);
                         displayShiftSettings(currentSettings, currentTimeSlots);
                     }
                 }
@@ -1748,14 +1832,21 @@
 
         function showSettingMode(mode) {
             const weekday_weekend_mode = document.getElementById('weekday_weekend_mode');
+            const weekday_weekend_with_holidays_mode = document.getElementById('weekday_weekend_with_holidays_mode');
             const daily_mode = document.getElementById('daily_mode');
             
+            // すべてを非表示
+            weekday_weekend_mode.style.display = 'none';
+            weekday_weekend_with_holidays_mode.style.display = 'none';
+            daily_mode.style.display = 'none';
+            
+            // 選択されたモードを表示
             if (mode === 'daily') {
-                weekday_weekend_mode.style.display = 'none';
                 daily_mode.style.display = 'block';
+            } else if (mode === 'weekday_weekend_with_holidays') {
+                weekday_weekend_with_holidays_mode.style.display = 'block';
             } else {
                 weekday_weekend_mode.style.display = 'block';
-                daily_mode.style.display = 'none';
             }
         }
 
@@ -1765,6 +1856,8 @@
             // モード切り替え時は再描画するだけ（APIは呼ばない）
             if (currentSettingMode === 'daily') {
                 displayDailyShiftSettings(currentSettings, currentTimeSlots);
+            } else if (currentSettingMode === 'weekday_weekend_with_holidays') {
+                displayHolidayShiftSettings(currentSettings, currentTimeSlots);
             } else {
                 displayShiftSettings(currentSettings, currentTimeSlots);
             }
@@ -1969,6 +2062,10 @@
                 timeSlots = ['10-15', '17-23', '18-23', '19-23'];
             }
 
+            const safeSettings = settings || {};
+            const weekdaySettings = safeSettings.weekday || safeSettings.mon_thu || {};
+            const weekendSettings = safeSettings.weekend || safeSettings.friday || {};
+
             const staffTypes = sortStaffTypes(currentStaffTypes.length ? currentStaffTypes : ['社員', 'アルバイト']);
             renderSettingsHeader('weekdaySettingsHead', staffTypes);
             renderSettingsHeader('weekendSettingsHead', staffTypes);
@@ -1977,7 +2074,7 @@
             const weekdayTbody = document.getElementById('weekdaySettings');
             weekdayTbody.innerHTML = '';
             timeSlots.forEach((slot, slotIndex) => {
-                const config = settings.weekday[slot] || {};
+                const config = weekdaySettings[slot] || {};
                 const row = document.createElement('tr');
                 const cells = [];
                 
@@ -2004,7 +2101,7 @@
             const weekendTbody = document.getElementById('weekendSettings');
             weekendTbody.innerHTML = '';
             timeSlots.forEach((slot, slotIndex) => {
-                const config = settings.weekend[slot] || {};
+                const config = weekendSettings[slot] || {};
                 const row = document.createElement('tr');
                 const cells = [];
                 
@@ -2126,6 +2223,57 @@
             });
         }
 
+        function displayHolidayShiftSettings(settings, timeSlots) {
+            if (!timeSlots) {
+                timeSlots = ['10-15', '17-23', '18-23', '19-23'];
+            }
+
+            const staffTypes = sortStaffTypes(currentStaffTypes.length ? currentStaffTypes : ['社員', 'アルバイト']);
+            const dayTypes = [
+                { id: 'sunday', label: '☀️ 日（日曜日）' },
+                { id: 'monThu', label: '📅 月-木（通常の平日）' },
+                { id: 'friday', label: '🟠 金（金曜日）' },
+                { id: 'saturday', label: '⭐ 土（土曜日）' },
+                { id: 'holiday', label: '✨ 祝日' },
+                { id: 'dayBeforeHoliday', label: '🌅 祝日前日' }
+            ];
+            
+            dayTypes.forEach(dayType => {
+                renderSettingsHeader(dayType.id + 'SettingsHead', staffTypes);
+                
+                const tbody = document.getElementById(dayType.id + 'Settings');
+                if (!tbody) return;
+                tbody.innerHTML = '';
+                
+                timeSlots.forEach(slot => {
+                    // JSONキーを統一（HTMLキーから設定キーへ変換）
+                    const dataKey = dayType.id === 'monThu' ? 'mon_thu' : 
+                                   dayType.id === 'dayBeforeHoliday' ? 'day_before_holiday' : dayType.id;
+                    const config = settings[dataKey] && settings[dataKey][slot] ? settings[dataKey][slot] : {};
+                    const row = document.createElement('tr');
+                    const cells = [];
+                    
+                    // 時間帯
+                    cells.push(`<td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">${slot}</td>`);
+
+                    // スタッフ種別ごとの入力
+                    staffTypes.forEach(type => {
+                        const value = Number.isFinite(config[type]) ? config[type] : (config[type] || 0);
+                        cells.push(`
+                            <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">
+                                <input type="number" min="0" max="10" value="${value}" 
+                                       data-day="${dayType.id}" data-slot="${slot}" data-type="${type}"
+                                       style="width: 60px; padding: 5px; text-align: center; border: 1px solid #ddd; border-radius: 4px;">
+                            </td>
+                        `);
+                    });
+
+                    row.innerHTML = cells.join('');
+                    tbody.appendChild(row);
+                });
+            });
+        }
+
         async function saveShiftSettings() {
             try {
                 let settings;
@@ -2151,6 +2299,39 @@
                             });
                         });
                     }
+                } else if (currentSettingMode === 'weekday_weekend_with_holidays') {
+                    // 祝日別モード（日曜日を独立）
+                    settings = {
+                        weekday_weekend_with_holidays: {
+                            sunday: {},
+                            mon_thu: {},
+                            friday: {},
+                            saturday: {},
+                            holiday: {},
+                            day_before_holiday: {}
+                        }
+                    };
+                    
+                    const dayTypeMap = {
+                        sunday: 'sunday',
+                        monThu: 'mon_thu',
+                        friday: 'friday',
+                        saturday: 'saturday',
+                        holiday: 'holiday',
+                        dayBeforeHoliday: 'day_before_holiday'
+                    };
+                    
+                    Object.entries(dayTypeMap).forEach(([htmlKey, settingKey]) => {
+                        timeSlots.forEach(slot => {
+                            settings.weekday_weekend_with_holidays[settingKey][slot] = {};
+                            staffTypes.forEach(type => {
+                                const input = document.querySelector(
+                                    `input[data-day="${htmlKey}"][data-slot="${slot}"][data-type="${type}"]`
+                                );
+                                settings.weekday_weekend_with_holidays[settingKey][slot][type] = parseInt(input?.value, 10) || 0;
+                            });
+                        });
+                    });
                 } else {
                     // 平日・週末モード
                     settings = {
