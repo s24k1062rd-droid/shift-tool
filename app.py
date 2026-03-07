@@ -36,6 +36,17 @@ SHIFT_DATA_DIR = os.path.join(BASE_DIR, 'shift_data')
 # スタッフ追加のスレッドセーフなロック
 staff_lock = threading.Lock()
 
+def get_default_password_for_store(store_code):
+    """店舗ごとのデフォルトパスワードを取得（環境変数を優先）"""
+    # 環境変数から店舗固有のパスワードを取得
+    # 例: PUKU-SMB の場合は ADMIN_PASSWORD_PUKU_SMB
+    env_key = f'ADMIN_PASSWORD_{store_code.replace("-", "_").upper()}'
+    env_password = os.getenv(env_key)
+    if env_password:
+        return env_password
+    # 環境変数がない場合はデフォルト
+    return ADMIN_PASSWORD
+
 # 日本の祝日リスト（2024-2027年の主な祝日）
 # 年を超えた場合は適切に拡張してください
 JAPAN_HOLIDAYS = {
@@ -504,9 +515,9 @@ def api_login():
             print(f"[ERROR api_login] ❌ 店舗データの読み込みに失敗: {str(e)}")
             return jsonify({'success': False, 'error': '店舗データの読み込みに失敗しました: ' + str(e)}), 500
     else:
-        # 新規店舗の場合はデフォルトパスワード
+        # 新規店舗の場合はデフォルトパスワード（環境変数を優先）
         print(f"[DEBUG api_login] 新規店舗です（ファイルが存在しません）")
-        store_password = ADMIN_PASSWORD
+        store_password = get_default_password_for_store(store_code)
     
     # 管理者パスワード確認
     if role == 'admin' and password != store_password:
@@ -532,7 +543,7 @@ def api_login():
                 'requirements': {},
                 'shift_settings': get_default_shift_settings(),
                 'time_slots': get_default_time_slots(),
-                'admin_password': ADMIN_PASSWORD
+                'admin_password': store_password  # 環境変数またはデフォルトパスワードを使用
             }
             dir_path = os.path.dirname(data_file)
             print(f"[DEBUG api_login] ディレクトリ作成: {dir_path}")
