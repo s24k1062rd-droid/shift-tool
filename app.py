@@ -31,7 +31,16 @@ ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'admin123')
 # データファイルのパス
 DATA_FILE = 'shift_data.json'
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SHIFT_DATA_DIR = os.path.join(BASE_DIR, 'shift_data')
+PERSISTENT_STORAGE_PATH = os.getenv('PERSISTENT_STORAGE_PATH', '').strip()
+
+if PERSISTENT_STORAGE_PATH:
+    # Render Disk などの永続ストレージを使う場合
+    SHIFT_DATA_DIR = os.path.join(PERSISTENT_STORAGE_PATH, 'shift_data')
+else:
+    SHIFT_DATA_DIR = os.path.join(BASE_DIR, 'shift_data')
+
+os.makedirs(SHIFT_DATA_DIR, exist_ok=True)
+print(f"[INFO] SHIFT_DATA_DIR: {SHIFT_DATA_DIR}")
 
 # スタッフ追加のスレッドセーフなロック
 staff_lock = threading.Lock()

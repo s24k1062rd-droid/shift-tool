@@ -6,3 +6,10 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
     autoDeploy: true
+    envVars:
+      - key: PERSISTENT_STORAGE_PATH
+        value: /var/data
+    disk:
+      name: shift-data
+      mountPath: /var/data
+      sizeGB: 1
