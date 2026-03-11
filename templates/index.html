@@ -220,6 +220,11 @@
             top: 0;
         }
 
+        /* 人数不足の日の見出しスタイル */
+        th[style*="background-color: #ffebee"] {
+            font-weight: bold;
+        }
+
         td.staff-name {
             font-weight: 500;
             background-color: #f9f9f9;
@@ -1289,6 +1294,19 @@
         }
 
         async function generateShift() {
+            // 生成タブ単独利用でも時間帯選択肢が出るように先に取得
+            try {
+                const shiftsResponse = await fetch(`/api/shifts/${currentYear}/${currentMonth}`);
+                if (shiftsResponse.ok) {
+                    const shiftsData = await shiftsResponse.json();
+                    if (Array.isArray(shiftsData.time_slots)) {
+                        timeSlots = shiftsData.time_slots;
+                    }
+                }
+            } catch (e) {
+                console.warn('time_slots load failed:', e);
+            }
+
             const response = await fetch(`/api/generate?year=${currentYear}&month=${currentMonth}`);
             const months = await response.json();
             
@@ -1353,6 +1371,15 @@
                 monthData.dates.forEach(d => {
                     const th = document.createElement('th');
                     th.innerHTML = `${d.day}日<br>(${d.weekday})`;
+                    
+                    // 人数不足の日は背景色を付与
+                    if (d.insufficient) {
+                        th.style.backgroundColor = '#ef5350';
+                        th.style.color = 'white';
+                        th.style.fontWeight = 'bold';
+                        th.style.border = '2px solid #c62828';
+                    }
+                    
                     headerRow.appendChild(th);
                 });
                 table.appendChild(headerRow);
@@ -1407,6 +1434,7 @@
                         const td = document.createElement('td');
                         // 選択シフトと自由入力シフトを分けて表示
                         const customShifts = staff.custom_shifts && staff.custom_shifts[dateIdx] ? staff.custom_shifts[dateIdx] : [];
+                        const inputShifts = staff.input_shifts && staff.input_shifts[dateIdx] ? staff.input_shifts[dateIdx] : [];
                         const dateStr = monthData.dates[dateIdx].date;
                         const cellKey = getGeneratedCellKey(staff.name, dateStr);
                         if (customShifts.length > 0) {
@@ -1416,19 +1444,16 @@
                         const isCustomEditable = customEditableCells[cellKey] === true;
                         
                         let html = '';
-                        if (shifts.length > 0) {
-                            html += shifts.join('<br>');
-                        }
-                        
-                        // 自由入力シフトを色付けして表示
+                        // 自由入力シフトがある場合は通常シフトを隠して、自由入力のみ表示
                         if (customShifts.length > 0) {
-                            if (html) html += '<br>';
                             customShifts.forEach(slot => {
                                 html += `<span style="background-color: #FFB6E1; padding: 2px 4px; border-radius: 3px; display: inline-block;">${slot}</span>`;
                                 if (customShifts.indexOf(slot) < customShifts.length - 1) {
                                     html += '<br>';
                                 }
                             });
+                        } else if (shifts.length > 0) {
+                            html += shifts.join('<br>');
                         } else if (isCustomEditable) {
                             if (html) html += '<br>';
                             html += `<span style="background-color: #FFB6E1; padding: 2px 10px; border-radius: 3px; display: inline-block;">&nbsp;</span>`;
@@ -1441,6 +1466,7 @@
                         td.dataset.staffName = staff.name;
                         td.dataset.dateStr = dateStr;
                         td.dataset.currentShifts = JSON.stringify(shifts);
+                        td.dataset.inputShifts = JSON.stringify(inputShifts);
                         td.dataset.customShifts = JSON.stringify(customShifts);
                         td.dataset.customEditable = isCustomEditable ? '1' : '0';
                         
@@ -1582,18 +1608,13 @@
             const staffName = td.dataset.staffName;
             const dateStr = td.dataset.dateStr;
             const currentShifts = JSON.parse(td.dataset.currentShifts);
+            const inputShifts = JSON.parse(td.dataset.inputShifts || '[]');
             const customShifts = JSON.parse(td.dataset.customShifts || '[]');
             const isCustomEditable = td.dataset.customEditable === '1';
             const cellKey = getGeneratedCellKey(staffName, dateStr);
             const previousCustomShifts = customShifts.length > 0
                 ? customShifts
                 : (customShiftHistory[cellKey] || []);
-
-            // 自由入力シフトがあるセルは、クリックで直接「修正」画面へ
-            if (customShifts.length > 0 || isCustomEditable) {
-                showCustomShiftInput(staffName, dateStr, customShifts, previousCustomShifts);
-                return;
-            }
             
             // 既存のメニューがあれば削除
             const existingMenu = document.getElementById('shiftEditMenu');
@@ -1615,6 +1636,17 @@
             menu.style.minWidth = '220px';
             menu.style.maxWidth = '300px';
             
+            // 入力されたシフト希望を表示（ヘッダー）
+            const inputHeader = document.createElement('div');
+            inputHeader.style.padding = '8px 12px';
+            inputHeader.style.backgroundColor = '#f5f5f5';
+            inputHeader.style.borderBottom = '1px solid #ddd';
+            inputHeader.style.fontSize = '11px';
+            inputHeader.style.color = '#666';
+            const inputShiftText = inputShifts.length > 0 ? inputShifts.join(', ') : 'なし';
+            inputHeader.innerHTML = `<strong>入力されたシフト:</strong><br>${inputShiftText}`;
+            menu.appendChild(inputHeader);
+            
             // 通常のシフト選択メニュー
             const options = ['シフトなし'].concat(timeSlots);
             options.forEach(opt => {
@@ -1627,24 +1659,72 @@
                 const isSelected = opt === 'シフトなし' ? currentShifts.length === 0 : currentShifts.includes(opt);
                 
                 item.innerHTML = isSelected ? `✓ ${displayName}` : displayName;
-                item.style.backgroundColor = isSelected ? '#e8f4f8' : 'white';
+                item.style.backgroundColor = isSelected ? '#dfe8ee' : 'white';
                 
                 item.addEventListener('mouseover', () => {
                     item.style.backgroundColor = '#f0f0f0';
                 });
                 item.addEventListener('mouseout', () => {
-                    item.style.backgroundColor = isSelected ? '#e8f4f8' : 'white';
+                    item.style.backgroundColor = isSelected ? '#dfe8ee' : 'white';
                 });
                 
                 item.addEventListener('click', async () => {
                     // シフトを更新
                     const newShifts = opt === 'シフトなし' ? [] : [opt];
-                    await updateShift(staffName, dateStr, newShifts);
+                    if (customShifts.length > 0 || isCustomEditable) {
+                        // 時間選択時は自由入力を解除して、選択シフトを優先表示する
+                        await updateCustomShift(staffName, dateStr, [], false);
+                    }
+                    await updateShift(staffName, dateStr, newShifts, true);
                     menu.remove();
                 });
                 
                 menu.appendChild(item);
             });
+
+            // 自由入力欄と通常シフト選択欄を同時に表示
+            const divider = document.createElement('div');
+            divider.style.borderTop = '1px solid #ddd';
+            divider.style.marginTop = '2px';
+            menu.appendChild(divider);
+
+            const customInputItem = document.createElement('div');
+            customInputItem.style.padding = '8px 12px';
+            customInputItem.style.cursor = 'pointer';
+            customInputItem.style.backgroundColor = '#fff3cd';
+            customInputItem.style.fontWeight = 'bold';
+            customInputItem.textContent = '自由入力で調整...';
+            customInputItem.addEventListener('mouseover', () => {
+                customInputItem.style.backgroundColor = '#ffe8a1';
+            });
+            customInputItem.addEventListener('mouseout', () => {
+                customInputItem.style.backgroundColor = '#fff3cd';
+            });
+            customInputItem.addEventListener('click', () => {
+                menu.remove();
+                showCustomShiftInput(staffName, dateStr, customShifts, previousCustomShifts);
+            });
+            menu.appendChild(customInputItem);
+
+            if (customShifts.length > 0 || isCustomEditable) {
+                const clearCustomItem = document.createElement('div');
+                clearCustomItem.style.padding = '8px 12px';
+                clearCustomItem.style.cursor = 'pointer';
+                clearCustomItem.style.color = '#c62828';
+                clearCustomItem.style.borderTop = '1px solid #eee';
+                clearCustomItem.textContent = '自由入力をクリア';
+                clearCustomItem.addEventListener('mouseover', () => {
+                    clearCustomItem.style.backgroundColor = '#ffebee';
+                });
+                clearCustomItem.addEventListener('mouseout', () => {
+                    clearCustomItem.style.backgroundColor = 'white';
+                });
+                clearCustomItem.addEventListener('click', async () => {
+                    menu.remove();
+                    await updateCustomShift(staffName, dateStr, []);
+                });
+                menu.appendChild(clearCustomItem);
+            }
             
             document.body.appendChild(menu);
             
@@ -1681,7 +1761,7 @@
         }
         
         // カスタムシフトを更新
-        async function updateCustomShift(staffName, dateStr, customShifts) {
+        async function updateCustomShift(staffName, dateStr, customShifts, shouldRefresh = true) {
             try {
                 const response = await fetch('/api/update-custom-shift', {
                     method: 'POST',
@@ -1696,8 +1776,10 @@
                 if (response.ok) {
                     const result = await response.json();
                     if (result.success) {
-                        // 表を再生成して反映
-                        await generateShift();
+                        if (shouldRefresh) {
+                            // 表を再生成して反映
+                            await generateShift();
+                        }
                     } else {
                         alert('エラー: ' + (result.error || '更新に失敗しました'));
                     }
@@ -1711,7 +1793,7 @@
         }
         
         // シフトをサーバーに送信して更新
-        async function updateShift(staffName, dateStr, newShifts) {
+        async function updateShift(staffName, dateStr, newShifts, shouldRefresh = true) {
             try {
                 console.log('Updating shift:', {staffName, dateStr, newShifts});
                 
@@ -1731,9 +1813,11 @@
                 
                 if (response.ok) {
                     if (result.success) {
-                        console.log('Update successful, regenerating shift...');
-                        // 表を再生成して反映
-                        await generateShift();
+                        if (shouldRefresh) {
+                            console.log('Update successful, regenerating shift...');
+                            // 表を再生成して反映
+                            await generateShift();
+                        }
                     } else {
                         alert('エラー: ' + (result.error || '更新に失敗しました'));
                     }

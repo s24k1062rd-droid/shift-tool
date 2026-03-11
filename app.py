@@ -159,25 +159,31 @@ def get_day_type(date_str):
     """
     指定日の種類を返す
     返り値: 'sunday' (日), 'mon_thu' (月-木), 'friday' (金), 'saturday' (土), 'holiday' (祝日), 'day_before_holiday' (祝日前日)
+    
+    優先順位: 祝前日 > 曜日（金土日） > 祝日（それ以外の日）> 月-木
+    ※ 金曜日が祝日の場合は金曜日として扱い、その前日（木曜日）は祝前日として扱う
     """
     date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+    weekday = date_obj.weekday()  # 0=月, 6=日
     
-    # 祝日判定
-    if is_holiday(date_obj):
-        return 'holiday'
+    # 祝日の前日かどうかをチェック（祝前日は常に優先）
     if is_day_before_holiday(date_obj):
         return 'day_before_holiday'
     
-    # 曜日判定 (0=月, 6=日)
-    weekday = date_obj.weekday()
+    # 曜日判定（金曜日・土曜日・日曜日は曜日として扱う）
     if weekday == 4:  # 金
         return 'friday'
     elif weekday == 5:  # 土
         return 'saturday'
     elif weekday == 6:  # 日
         return 'sunday'
-    else:  # 月-木
-        return 'mon_thu'
+    
+    # 祝日判定（月-木で祝日の場合のみ祝日として扱う）
+    if is_holiday(date_obj):
+        return 'holiday'
+    
+    # それ以外は月-木
+    return 'mon_thu'
 
 def get_store_data_file(store_code):
     """店舗ごとのデータファイルパスを取得"""
@@ -424,6 +430,9 @@ def load_data(store_code=None):
         # custom_shiftsがない場合は初期化（自由入力シフト用）
         if 'custom_shifts' not in data:
             data['custom_shifts'] = {}
+        # 生成後の手作業上書きシフトがない場合は初期化
+        if 'manual_generated_shifts' not in data:
+            data['manual_generated_shifts'] = {}
         
         # 古い形式のshift_settingsをチェック（mode属性がない場合）
         shift_settings = data.get('shift_settings', {})
@@ -455,6 +464,7 @@ def load_data(store_code=None):
         'staff': {},  # スタッフ情報の辞書 {name: {type: '社員' or 'アルバイト' or 任意}}
         'shifts': {},  # {date: {staff: [time_slots]}}
         'custom_shifts': {},  # {date: {staff: [custom_time_slots]}}
+        'manual_generated_shifts': {},  # {date: {staff: [time_slots]}} 生成表の手作業上書き
         'requirements': {},  # {date: {time_slot: count}}
         'shift_settings': get_default_shift_settings(),  # シフト詳細設定
         'time_slots': get_default_time_slots(),  # 時間帯リスト
@@ -840,7 +850,7 @@ def update_shift():
 @app.route('/api/update-shift', methods=['POST'])
 @require_admin
 def update_shift_inline():
-    """シフト表から手作業でシフトを更新（管理者のみ）"""
+    """生成シフト表の手作業上書きを更新（管理者のみ）"""
     staff_name = request.json.get('staff_name')
     date = request.json.get('date')
     shifts = request.json.get('shifts', [])
@@ -852,18 +862,15 @@ def update_shift_inline():
     
     if staff_name not in data['staff']:
         return jsonify({'error': 'スタッフが登録されていません', 'success': False}), 400
-    
-    if date not in data['shifts']:
-        data['shifts'][date] = {}
-    
-    if shifts:
-        data['shifts'][date][staff_name] = shifts
-    else:
-        # 空の場合は削除
-        if staff_name in data['shifts'][date]:
-            del data['shifts'][date][staff_name]
-        if not data['shifts'][date]:
-            del data['shifts'][date]
+
+    if 'manual_generated_shifts' not in data:
+        data['manual_generated_shifts'] = {}
+
+    if date not in data['manual_generated_shifts']:
+        data['manual_generated_shifts'][date] = {}
+
+    # 空配列も有効な上書き値として保存（生成結果を空にしたいケース）
+    data['manual_generated_shifts'][date][staff_name] = shifts
     
     try:
         save_data(data)
@@ -932,6 +939,12 @@ def delete_generated_shift():
         del data['shifts'][date][staff_name]
         if not data['shifts'][date]:
             del data['shifts'][date]
+
+    # 手作業上書きシフトからも削除
+    if date in data.get('manual_generated_shifts', {}) and staff_name in data['manual_generated_shifts'][date]:
+        del data['manual_generated_shifts'][date][staff_name]
+        if not data['manual_generated_shifts'][date]:
+            del data['manual_generated_shifts'][date]
     
     # カスタムシフトが保存されていたら復元（実装上は常に保持すること）
     # ただし、上記で削除しないので実装上の余剰処理
@@ -1039,22 +1052,27 @@ def update_shift_settings():
     time_slots = data.get('time_slots', get_default_time_slots())
     staff_types = get_staff_types(data, raw_settings)
     
+    # 既存の設定から現在のモード以外のデータを保持
+    existing_settings = data.get('shift_settings', {})
+    if not isinstance(existing_settings, dict):
+        existing_settings = {}
+    
     # 元の設定構造を保存（mode + weekday_weekend or daily or weekday_weekend_with_holidays）
+    # 現在のモードのデータのみを更新し、他のモードのデータは保持する
+    updated_settings = {
+        'mode': mode,
+        'weekday_weekend': existing_settings.get('weekday_weekend', get_default_shift_settings().get('weekday_weekend', {})),
+        'daily': existing_settings.get('daily', get_default_shift_settings().get('daily', {})),
+        'weekday_weekend_with_holidays': existing_settings.get('weekday_weekend_with_holidays', {})
+    }
+    
+    # 現在のモードのデータのみを上書き
     if mode == 'weekday_weekend_with_holidays':
-        # 祝日対応モード
-        updated_settings = {
-            'mode': mode,
-            'weekday_weekend_with_holidays': raw_settings.get('weekday_weekend_with_holidays', {}),
-            'weekday_weekend': get_default_shift_settings().get('weekday_weekend', {}),  # 後方互換性
-            'daily': get_default_shift_settings().get('daily', {})
-        }
-    else:
-        # デフォルトモード（weekday_weekend または daily）
-        updated_settings = {
-            'mode': mode,
-            'weekday_weekend': raw_settings.get('weekday_weekend', get_default_shift_settings().get('weekday_weekend', {})),
-            'daily': raw_settings.get('daily', get_default_shift_settings().get('daily', {}))
-        }
+        updated_settings['weekday_weekend_with_holidays'] = raw_settings.get('weekday_weekend_with_holidays', {})
+    elif mode == 'daily':
+        updated_settings['daily'] = raw_settings.get('daily', {})
+    else:  # weekday_weekend
+        updated_settings['weekday_weekend'] = raw_settings.get('weekday_weekend', {})
     
     data['shift_settings'] = updated_settings
     save_data(data)
@@ -1197,6 +1215,23 @@ def generate_shift():
     
     # シフトを最適化（必要人数に合わせて調整）
     optimized_shifts = optimize_shifts(data)
+
+    # 手作業で再調整した生成シフトを最終結果に上書き
+    manual_generated_shifts = data.get('manual_generated_shifts', {})
+    for date_str, staff_map in manual_generated_shifts.items():
+        if date_str not in optimized_shifts:
+            optimized_shifts[date_str] = {}
+
+        for staff_name, manual_slots in staff_map.items():
+            if manual_slots:
+                optimized_shifts[date_str][staff_name] = manual_slots
+            else:
+                # 空指定は「その日の生成シフトなし」として扱う
+                if staff_name in optimized_shifts[date_str]:
+                    del optimized_shifts[date_str][staff_name]
+
+        if not optimized_shifts[date_str]:
+            del optimized_shifts[date_str]
     
     # 月別にグループ化
     monthly_data = {}
@@ -1224,10 +1259,49 @@ def generate_shift():
         for date_str in month_dates:
             date_obj = datetime.strptime(date_str, '%Y-%m-%d')
             weekday_jp = weekday_names[date_obj.weekday()]
+            
+            # この日の充足状況をチェック
+            is_insufficient = False
+            time_slots = data.get('time_slots', get_default_time_slots())
+            settings = data.get('shift_settings', get_default_shift_settings())
+            staff_types = get_staff_types(data, settings)
+            
+            for time_slot in time_slots:
+                required_by_type = {}
+                assigned_by_type = {staff_type: 0 for staff_type in staff_types}
+                
+                for staff_type in staff_types:
+                    required_by_type[staff_type] = get_required_staff(
+                        date_str,
+                        time_slot,
+                        staff_type,
+                        settings
+                    )
+                
+                # 実際に入っている人数を計算（時間帯包含を考慮）
+                shifts = optimized_shifts.get(date_str, {})
+                for staff_name, slots in shifts.items():
+                    covered = get_covered_slots(slots)
+                    if time_slot in covered:
+                        staff_info = data['staff'].get(staff_name, {})
+                        staff_type = staff_info.get('type', 'アルバイト')
+                        if staff_type in assigned_by_type:
+                            assigned_by_type[staff_type] += 1
+                
+                # 不足をチェック
+                for staff_type in staff_types:
+                    if assigned_by_type[staff_type] < required_by_type[staff_type]:
+                        is_insufficient = True
+                        break
+                
+                if is_insufficient:
+                    break
+            
             month_info['dates'].append({
                 'date': date_str,
                 'day': date_obj.day,
-                'weekday': weekday_jp
+                'weekday': weekday_jp,
+                'insufficient': is_insufficient
             })
         
         # スタッフリストを取得（シフトに含まれるスタッフも含める）
@@ -1248,6 +1322,7 @@ def generate_shift():
                 'name': staff_name,
                 'type': staff_info.get('type', 'アルバイト'),  # 未登録スタッフはアルバイト扱い
                 'shifts': [],  # 選択シフト（詳細設定に従って生成）
+                'input_shifts': [],  # 入力されたシフト希望（最適化前）
                 'custom_shifts': []  # 自由入力シフト（手作業で管理）
             }
             
@@ -1256,6 +1331,12 @@ def generate_shift():
                 if date_str in optimized_shifts and staff_name in optimized_shifts[date_str]:
                     time_slots = optimized_shifts[date_str][staff_name]
                 row['shifts'].append(time_slots)
+                
+                # 入力されたシフト希望（最適化前）を取得
+                input_slots = []
+                if date_str in data['shifts'] and staff_name in data['shifts'][date_str]:
+                    input_slots = data['shifts'][date_str][staff_name]
+                row['input_shifts'].append(input_slots)
                 
                 # 自由入力シフトを抽出（時間帯リストに存在しない）
                 custom_slots = []
