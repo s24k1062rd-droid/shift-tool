@@ -433,6 +433,12 @@ def load_data(store_code=None):
         # 生成後の手作業上書きシフトがない場合は初期化
         if 'manual_generated_shifts' not in data:
             data['manual_generated_shifts'] = {}
+        # 生成シフトの一時保存データがない場合は初期化
+        if 'generated_shift_drafts' not in data:
+            data['generated_shift_drafts'] = {}
+        # 確定済み生成シフトがない場合は初期化
+        if 'confirmed_generated_shifts' not in data:
+            data['confirmed_generated_shifts'] = {}
         
         # 古い形式のshift_settingsをチェック（mode属性がない場合）
         shift_settings = data.get('shift_settings', {})
@@ -465,11 +471,94 @@ def load_data(store_code=None):
         'shifts': {},  # {date: {staff: [time_slots]}}
         'custom_shifts': {},  # {date: {staff: [custom_time_slots]}}
         'manual_generated_shifts': {},  # {date: {staff: [time_slots]}} 生成表の手作業上書き
+        'generated_shift_drafts': {},  # {YYYY-MM: {'saved_at': str, 'shifts': {date: {staff: [time_slots]}}}}
+        'confirmed_generated_shifts': {},  # {YYYY-MM: {'confirmed_at': str, 'shifts': {date: {staff: [time_slots]}}}}
         'requirements': {},  # {date: {time_slot: count}}
         'shift_settings': get_default_shift_settings(),  # シフト詳細設定
         'time_slots': get_default_time_slots(),  # 時間帯リスト
         'admin_password': ADMIN_PASSWORD  # 管理者パスワード（店舗ごと）
     }
+
+def replace_month_shifts(base_shifts, year, month, month_shifts):
+    """指定月のシフトを丸ごと置き換える"""
+    for date_str in list(base_shifts.keys()):
+        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+        if date_obj.year == year and date_obj.month == month:
+            del base_shifts[date_str]
+
+    for date_str, staff_map in month_shifts.items():
+        base_shifts[date_str] = {
+            staff_name: list(slots)
+            for staff_name, slots in staff_map.items()
+        }
+
+def build_final_generated_shifts(data, year=None, month=None, force_regenerate=False):
+    """最適化結果に保存済みシフトと手作業上書きを反映した最終生成シフトを返す"""
+    optimized_shifts = optimize_shifts(data)
+
+    if year is not None and month is not None and not force_regenerate:
+        month_key = f"{year:04d}-{month:02d}"
+        confirmed_entry = data.get('confirmed_generated_shifts', {}).get(month_key, {})
+        draft_entry = data.get('generated_shift_drafts', {}).get(month_key, {})
+
+        confirmed_shifts = confirmed_entry.get('shifts') if isinstance(confirmed_entry, dict) else None
+        draft_shifts = draft_entry.get('shifts') if isinstance(draft_entry, dict) else None
+
+        # 優先順位: 確定済み > 一時保存
+        if confirmed_shifts:
+            replace_month_shifts(optimized_shifts, year, month, confirmed_shifts)
+        elif draft_shifts:
+            replace_month_shifts(optimized_shifts, year, month, draft_shifts)
+
+    manual_generated_shifts = data.get('manual_generated_shifts', {})
+
+    for date_str, staff_map in manual_generated_shifts.items():
+        if date_str not in optimized_shifts:
+            optimized_shifts[date_str] = {}
+
+        for staff_name, manual_slots in staff_map.items():
+            if manual_slots:
+                optimized_shifts[date_str][staff_name] = manual_slots
+            else:
+                # 空指定は「その日の生成シフトなし」として扱う
+                if staff_name in optimized_shifts[date_str]:
+                    del optimized_shifts[date_str][staff_name]
+
+        if not optimized_shifts[date_str]:
+            del optimized_shifts[date_str]
+
+    return optimized_shifts
+
+def extract_month_generated_shifts(shifts_by_date, year, month):
+    """指定月の生成シフトのみを抽出する"""
+    result = {}
+    for date_str, staff_map in shifts_by_date.items():
+        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+        if date_obj.year == year and date_obj.month == month:
+            # 参照共有を避けるために浅いコピーを作成
+            result[date_str] = {
+                staff_name: list(slots)
+                for staff_name, slots in staff_map.items()
+            }
+    return result
+
+def replace_month_manual_generated_shifts(data, year, month, month_shifts):
+    """指定月の手作業上書きシフトを丸ごと置き換える"""
+    if 'manual_generated_shifts' not in data:
+        data['manual_generated_shifts'] = {}
+
+    # 対象月の既存上書きを削除
+    for date_str in list(data['manual_generated_shifts'].keys()):
+        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+        if date_obj.year == year and date_obj.month == month:
+            del data['manual_generated_shifts'][date_str]
+
+    # 新しい確定内容を反映
+    for date_str, staff_map in month_shifts.items():
+        data['manual_generated_shifts'][date_str] = {
+            staff_name: list(slots)
+            for staff_name, slots in staff_map.items()
+        }
 
 def save_data(data, store_code=None):
     """データを保存"""
@@ -1194,6 +1283,7 @@ def generate_shift():
     # クエリパラメーターから年月を取得
     year = request.args.get('year', type=int)
     month = request.args.get('month', type=int)
+    force_regenerate = request.args.get('force_regenerate', default='0') == '1'
     
     # 日付を収集してソート（通常シフト + 自由入力シフト）
     dates = sorted(set(list(data['shifts'].keys()) + list(data.get('custom_shifts', {}).keys())))
@@ -1213,25 +1303,13 @@ def generate_shift():
     if not dates:
         return jsonify([])
     
-    # シフトを最適化（必要人数に合わせて調整）
-    optimized_shifts = optimize_shifts(data)
-
-    # 手作業で再調整した生成シフトを最終結果に上書き
-    manual_generated_shifts = data.get('manual_generated_shifts', {})
-    for date_str, staff_map in manual_generated_shifts.items():
-        if date_str not in optimized_shifts:
-            optimized_shifts[date_str] = {}
-
-        for staff_name, manual_slots in staff_map.items():
-            if manual_slots:
-                optimized_shifts[date_str][staff_name] = manual_slots
-            else:
-                # 空指定は「その日の生成シフトなし」として扱う
-                if staff_name in optimized_shifts[date_str]:
-                    del optimized_shifts[date_str][staff_name]
-
-        if not optimized_shifts[date_str]:
-            del optimized_shifts[date_str]
+    # シフトを最適化し、手作業上書きを反映
+    optimized_shifts = build_final_generated_shifts(
+        data,
+        year=year,
+        month=month,
+        force_regenerate=force_regenerate
+    )
     
     # 月別にグループ化
     monthly_data = {}
@@ -1354,6 +1432,134 @@ def generate_shift():
         result.append(month_info)
     
     return jsonify(result)
+
+@app.route('/api/generated-shift/status', methods=['GET'])
+@require_admin
+def generated_shift_status():
+    """指定月の生成シフト保存状態（下書き/確定）を返す（管理者のみ）"""
+    year = request.args.get('year', type=int)
+    month = request.args.get('month', type=int)
+
+    if year is None or month is None:
+        return jsonify({'success': False, 'error': '年月が必要です'}), 400
+
+    if month < 1 or month > 12:
+        return jsonify({'success': False, 'error': '月の指定が不正です'}), 400
+
+    data = load_data()
+    month_key = f"{year:04d}-{month:02d}"
+
+    draft_entry = data.get('generated_shift_drafts', {}).get(month_key, {})
+    confirmed_entry = data.get('confirmed_generated_shifts', {}).get(month_key, {})
+
+    has_draft = isinstance(draft_entry, dict) and bool(draft_entry.get('shifts'))
+    has_confirmed = isinstance(confirmed_entry, dict) and bool(confirmed_entry.get('shifts'))
+
+    return jsonify({
+        'success': True,
+        'month': month_key,
+        'has_draft': has_draft,
+        'draft_saved_at': draft_entry.get('saved_at') if isinstance(draft_entry, dict) else None,
+        'has_confirmed': has_confirmed,
+        'confirmed_at': confirmed_entry.get('confirmed_at') if isinstance(confirmed_entry, dict) else None
+    })
+
+@app.route('/api/generated-shift/temp-save', methods=['POST'])
+@require_admin
+def temp_save_generated_shift():
+    """指定月の生成シフトを一時保存する（管理者のみ）"""
+    year = request.json.get('year') if request.json else None
+    month = request.json.get('month') if request.json else None
+
+    try:
+        year = int(year)
+        month = int(month)
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': '年月が不正です'}), 400
+
+    if month < 1 or month > 12:
+        return jsonify({'success': False, 'error': '月の指定が不正です'}), 400
+
+    data = load_data()
+    final_generated = build_final_generated_shifts(data, year=year, month=month, force_regenerate=False)
+    month_shifts = extract_month_generated_shifts(final_generated, year, month)
+
+    if not month_shifts:
+        return jsonify({'success': False, 'error': '一時保存対象の生成シフトがありません'}), 400
+
+    if 'generated_shift_drafts' not in data:
+        data['generated_shift_drafts'] = {}
+
+    month_key = f"{year:04d}-{month:02d}"
+    data['generated_shift_drafts'][month_key] = {
+        'saved_at': datetime.now().isoformat(timespec='seconds'),
+        'shifts': month_shifts
+    }
+
+    try:
+        save_data(data)
+    except Exception as e:
+        print(f"[ERROR] 生成シフト一時保存の保存に失敗: {str(e)}")
+        return jsonify({'success': False, 'error': '生成シフト一時保存に失敗しました: ' + str(e)}), 500
+
+    return jsonify({
+        'success': True,
+        'month': month_key,
+        'saved_dates': len(month_shifts)
+    })
+
+@app.route('/api/generated-shift/confirm', methods=['POST'])
+@require_admin
+def confirm_generated_shift():
+    """指定月の生成シフトを確定する（管理者のみ）"""
+    year = request.json.get('year') if request.json else None
+    month = request.json.get('month') if request.json else None
+
+    try:
+        year = int(year)
+        month = int(month)
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': '年月が不正です'}), 400
+
+    if month < 1 or month > 12:
+        return jsonify({'success': False, 'error': '月の指定が不正です'}), 400
+
+    data = load_data()
+    month_key = f"{year:04d}-{month:02d}"
+
+    draft_entry = data.get('generated_shift_drafts', {}).get(month_key, {})
+    month_shifts = draft_entry.get('shifts') if isinstance(draft_entry, dict) else None
+
+    # 一時保存が未作成の場合は、現時点の生成結果を直接確定
+    if not month_shifts:
+        final_generated = build_final_generated_shifts(data, year=year, month=month, force_regenerate=False)
+        month_shifts = extract_month_generated_shifts(final_generated, year, month)
+
+    if not month_shifts:
+        return jsonify({'success': False, 'error': '確定対象の生成シフトがありません'}), 400
+
+    if 'confirmed_generated_shifts' not in data:
+        data['confirmed_generated_shifts'] = {}
+
+    data['confirmed_generated_shifts'][month_key] = {
+        'confirmed_at': datetime.now().isoformat(timespec='seconds'),
+        'shifts': month_shifts
+    }
+
+    # 確定結果を生成表に反映（以降の表示で再現される）
+    replace_month_manual_generated_shifts(data, year, month, month_shifts)
+
+    try:
+        save_data(data)
+    except Exception as e:
+        print(f"[ERROR] 生成シフト確定の保存に失敗: {str(e)}")
+        return jsonify({'success': False, 'error': '生成シフト確定に失敗しました: ' + str(e)}), 500
+
+    return jsonify({
+        'success': True,
+        'month': month_key,
+        'confirmed_dates': len(month_shifts)
+    })
 
 def optimize_shifts(data):
     """時間帯包含を考慮してシフトを最適化（詳細設定に従って社員・アルバイトを配置）"""

@@ -159,6 +159,18 @@
             color: white;
         }
 
+        .loading-note {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #1976D2;
+            display: none;
+        }
+
+        .btn-warning {
+            background-color: #FF9800;
+            color: white;
+        }
+
         .staff-list {
             list-style: none;
         }
@@ -476,8 +488,11 @@
             <p style="font-size: 12px; color: #666; margin-bottom: 10px;">
                 ※シフトは自動的に最適化されます。必要人数を超えている場合、適正人数まで調整されます。
             </p>
-            <button class="btn btn-success" onclick="generateShift()">シフトを生成</button>
+            <button id="generateShiftBtn" class="btn btn-success" onclick="generateShift()">シフトを生成</button>
+            <button id="tempSaveGeneratedBtn" class="btn btn-primary" onclick="tempSaveGeneratedShift()" style="margin-top: 10px;" disabled>一時保存</button>
+            <button id="confirmGeneratedBtn" class="btn btn-danger" onclick="confirmGeneratedShift()" style="margin-top: 10px;" disabled>確定</button>
             <button class="btn btn-primary" onclick="exportCSV()" style="margin-top: 10px;">PDF出力</button>
+            <div id="generatedLoadingNote" class="loading-note">処理中です...</div>
         </div>
         <div class="card">
             <h2>生成されたシフト</h2>
@@ -875,6 +890,8 @@
                 loadStaff();
             } else if (tabName === 'shifts') {
                 loadShiftTable();
+            } else if (tabName === 'generate') {
+                restoreGeneratedShiftIfAny();
             } else if (tabName === 'settings') {
                 loadShiftSettings();
             }
@@ -1288,35 +1305,176 @@
         let staffOrder = {};  // 月ごとのスタッフ順序を保存
         let customEditableCells = {}; // 生成表で自由入力再編集を維持するセル
         let customShiftHistory = {}; // 生成表セルごとの直前の自由入力値
+        let generatedShiftReady = false;
+        let generatedShiftLoading = false;
+        let isShiftConfirmed = false;
+        let isRevisionMode = false;
 
         function getGeneratedCellKey(staffName, dateStr) {
             return `${dateStr}__${staffName}`;
         }
 
-        async function generateShift() {
-            // 生成タブ単独利用でも時間帯選択肢が出るように先に取得
+        function setGeneratedActionButtonsEnabled(enabled) {
+            generatedShiftReady = enabled;  // ローディング中でも必ず状態を更新
+            if (generatedShiftLoading) return;  // DOM更新はローディング終了後に任せる
+            if (isShiftConfirmed) return;  // 確定済みUIはここでは制御しない
+            const tempSaveBtn = document.getElementById('tempSaveGeneratedBtn');
+            const confirmBtn = document.getElementById('confirmGeneratedBtn');
+            if (tempSaveBtn) tempSaveBtn.disabled = !enabled;
+            if (confirmBtn) confirmBtn.disabled = !enabled;
+        }
+
+        function setGeneratedLoading(loading, message = '処理中です...') {
+            generatedShiftLoading = loading;
+            const generateBtn = document.getElementById('generateShiftBtn');
+            const tempSaveBtn = document.getElementById('tempSaveGeneratedBtn');
+            const confirmBtn = document.getElementById('confirmGeneratedBtn');
+            const loadingNote = document.getElementById('generatedLoadingNote');
+
+            if (generateBtn) generateBtn.disabled = loading;
+            if (!isShiftConfirmed) {
+                if (tempSaveBtn) tempSaveBtn.disabled = loading || !generatedShiftReady;
+                if (confirmBtn) confirmBtn.disabled = loading || !generatedShiftReady;
+            } else {
+                // 確定後は再修正ボタンのみ制御
+                if (confirmBtn) confirmBtn.disabled = loading;
+            }
+            if (loadingNote) {
+                loadingNote.textContent = message;
+                loadingNote.style.display = loading ? 'block' : 'none';
+            }
+        }
+
+        // 確定済みUI ↔ 編集UIを切り替える
+        function setConfirmedUI(isConfirmed) {
+            isShiftConfirmed = isConfirmed;
+            const tempSaveBtn = document.getElementById('tempSaveGeneratedBtn');
+            const confirmBtn = document.getElementById('confirmGeneratedBtn');
+
+            if (isConfirmed) {
+                isRevisionMode = false;
+                // 一時保存ボタンを非表示
+                if (tempSaveBtn) tempSaveBtn.style.display = 'none';
+                // 確定ボタン → 再修正ボタン
+                if (confirmBtn) {
+                    confirmBtn.textContent = '再修正';
+                    confirmBtn.className = 'btn btn-warning';
+                    confirmBtn.onclick = reviseGeneratedShift;
+                    confirmBtn.disabled = false;
+                }
+            } else {
+                isRevisionMode = true;
+                // 一時保存ボタンを再表示
+                if (tempSaveBtn) {
+                    tempSaveBtn.style.display = '';
+                    tempSaveBtn.disabled = !generatedShiftReady;
+                }
+                // 再修正ボタン → 確定ボタン
+                if (confirmBtn) {
+                    confirmBtn.textContent = '確定';
+                    confirmBtn.className = 'btn btn-danger';
+                    confirmBtn.onclick = confirmGeneratedShift;
+                    confirmBtn.disabled = !generatedShiftReady;
+                }
+            }
+        }
+
+        // 再修正ボタン押下：確定UIを解除して編集モードに戻す
+        function reviseGeneratedShift() {
+            setConfirmedUI(false);
+        }
+
+        async function getGeneratedShiftStatus() {
+            const response = await fetch(`/api/generated-shift/status?year=${currentYear}&month=${currentMonth}`);
+            if (!response.ok) {
+                return null;
+            }
+            return await response.json();
+        }
+
+        async function restoreGeneratedShiftIfAny() {
             try {
-                const shiftsResponse = await fetch(`/api/shifts/${currentYear}/${currentMonth}`);
-                if (shiftsResponse.ok) {
-                    const shiftsData = await shiftsResponse.json();
-                    if (Array.isArray(shiftsData.time_slots)) {
-                        timeSlots = shiftsData.time_slots;
+                const status = await getGeneratedShiftStatus();
+                if (!status || !status.success) {
+                    return;
+                }
+
+                if (status.has_draft || status.has_confirmed) {
+                    await generateShift(false, true);
+                    // 確定済みの場合は確定UIを復元
+                    if (status.has_confirmed) {
+                        setConfirmedUI(true);
+                    }
+                } else {
+                    const container = document.getElementById('shiftResult');
+                    if (container) {
+                        container.innerHTML = '<p>保存済みシフトはありません。必要に応じて「シフトを生成」を押してください。</p>';
+                    }
+                    setGeneratedActionButtonsEnabled(false);
+                }
+            } catch (error) {
+                console.error('restoreGeneratedShiftIfAny failed:', error);
+            }
+        }
+
+        async function generateShift(forceRegenerate = false, skipConfirmedPrompt = false) {
+            // 強制再生成の場合は確定UIをリセット
+            if (forceRegenerate) {
+                isShiftConfirmed = false;
+                isRevisionMode = false;
+                setConfirmedUI(false);
+            }
+            setGeneratedLoading(true, 'シフトを生成中です...');
+            setGeneratedActionButtonsEnabled(false);
+
+            try {
+                if (!skipConfirmedPrompt && !forceRegenerate && !isRevisionMode) {
+                    const status = await getGeneratedShiftStatus();
+                    if (status && status.success && status.has_confirmed) {
+                        const regenerate = confirm(
+                            `この月のシフトは確定済みです（${status.confirmed_at || '保存日時不明'}）。\n\n` +
+                            'OK: もう一度生成する\n' +
+                            'キャンセル: 保存済みシフトのまま表示する'
+                        );
+
+                        if (!regenerate) {
+                            // 保存済み（確定）をそのまま表示
+                            skipConfirmedPrompt = true;
+                        } else {
+                            forceRegenerate = true;
+                        }
                     }
                 }
-            } catch (e) {
-                console.warn('time_slots load failed:', e);
-            }
 
-            const response = await fetch(`/api/generate?year=${currentYear}&month=${currentMonth}`);
-            const months = await response.json();
+                // 生成タブ単独利用でも時間帯選択肢が出るように先に取得
+                try {
+                    const shiftsResponse = await fetch(`/api/shifts/${currentYear}/${currentMonth}`);
+                    if (shiftsResponse.ok) {
+                        const shiftsData = await shiftsResponse.json();
+                        if (Array.isArray(shiftsData.time_slots)) {
+                            timeSlots = shiftsData.time_slots;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('time_slots load failed:', e);
+                }
+
+                const forceParam = forceRegenerate ? '&force_regenerate=1' : '';
+                const response = await fetch(`/api/generate?year=${currentYear}&month=${currentMonth}${forceParam}`);
+                if (!response.ok) {
+                    alert('シフト生成に失敗しました');
+                    return;
+                }
+                const months = await response.json();
             
-            const container = document.getElementById('shiftResult');
-            container.innerHTML = '';
+                const container = document.getElementById('shiftResult');
+                container.innerHTML = '';
             
-            if (months.length === 0) {
-                container.innerHTML = '<p>シフトデータがありません</p>';
-                return;
-            }
+                if (months.length === 0) {
+                    container.innerHTML = '<p>シフトデータがありません</p>';
+                    setGeneratedActionButtonsEnabled(false);
+                    return;
+                }
             
             months.forEach(monthData => {
                 const monthGroup = document.createElement('div');
@@ -1539,6 +1697,77 @@
                 monthGroup.appendChild(checkDiv);
                 container.appendChild(monthGroup);
             });
+
+                setGeneratedActionButtonsEnabled(true);
+            } finally {
+                setGeneratedLoading(false);
+            }
+        }
+
+        async function tempSaveGeneratedShift() {
+            if (!generatedShiftReady) {
+                alert('先にシフトを生成してください');
+                return;
+            }
+
+            setGeneratedLoading(true, '一時保存中です...');
+
+            try {
+                const response = await fetch('/api/generated-shift/temp-save', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        year: currentYear,
+                        month: currentMonth
+                    })
+                });
+
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    alert(result.error || '一時保存に失敗しました');
+                    return;
+                }
+
+                alert(`一時保存しました（${result.saved_dates}日分）`);
+            } finally {
+                setGeneratedLoading(false);
+            }
+        }
+
+        async function confirmGeneratedShift() {
+            if (!generatedShiftReady) {
+                alert('先にシフトを生成してください');
+                return;
+            }
+
+            if (!confirm('現在の生成シフトを確定しますか？')) {
+                return;
+            }
+
+            setGeneratedLoading(true, 'シフトを確定中です...');
+
+            try {
+                const response = await fetch('/api/generated-shift/confirm', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        year: currentYear,
+                        month: currentMonth
+                    })
+                });
+
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    alert(result.error || 'シフト確定に失敗しました');
+                    return;
+                }
+
+                alert(`シフトを確定しました（${result.confirmed_dates}日分）`);
+                // 確定UIに切り替え（一時保存を非表示、再修正ボタンに変更）
+                setConfirmedUI(true);
+            } finally {
+                setGeneratedLoading(false);
+            }
         }
         
         function swapTableRows(table, index1, index2) {
@@ -1605,6 +1834,11 @@
         
         // シフト編集メニューを表示
         function showShiftEditMenu(td, dateInfo, clickEvent) {
+            if (isShiftConfirmed && !isRevisionMode) {
+                alert('この月のシフトは確定済みです。編集するには「再修正」ボタンを押してください。');
+                return;
+            }
+
             const staffName = td.dataset.staffName;
             const dateStr = td.dataset.dateStr;
             const currentShifts = JSON.parse(td.dataset.currentShifts);
